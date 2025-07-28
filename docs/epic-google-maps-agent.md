@@ -2,7 +2,7 @@
 
 ## Epic Goal
 
-Enable users to interact with Google Maps through natural language chat in OpenWebUI, allowing them to find places and get directions with results displayed inline in the chat interface, while maintaining secure API access through a dedicated FastAPI proxy service.
+Enable users to interact with Google Maps through natural language chat in OpenWebUI, allowing them to find places and get directions with results displayed inline in the chat interface, while maintaining secure API access through integrated maps functionality in the existing OpenWebUI backend.
 
 ## Epic Description
 
@@ -27,10 +27,10 @@ Enable users to interact with Google Maps through natural language chat in OpenW
   - Open results in Google Maps application
 
 - **How it integrates**: 
-  - New FastAPI agent service with secure Google Maps API proxy
-  - LLM tool/function calling to trigger map queries
-  - Frontend components to render maps and results inline
-  - Backend routers to handle map service communication
+  - New maps router integrated into existing OpenWebUI backend with secure Google Maps API proxy
+  - LLM tool/function calling to trigger map queries through existing tool infrastructure
+  - Frontend components to render maps and results inline within chat interface
+  - Seamless integration with existing OpenWebUI authentication and middleware
 
 - **Success criteria**:
   - Users can successfully find places through chat
@@ -40,11 +40,11 @@ Enable users to interact with Google Maps through natural language chat in OpenW
 
 ## Stories
 
-**1. Story 1: Google Maps Agent Service Foundation**
-Create the FastAPI proxy service with core endpoints (`/find_places`, `/get_directions`, `/place_details`) that securely handle Google Maps API requests with rate limiting and validation.
+**1. Story 1: Backend API Foundation**
+Create maps router within existing OpenWebUI backend with core endpoints (`/maps/find_places`, `/maps/get_directions`, `/maps/place_details`) that securely handle Google Maps API requests with rate limiting and validation.
 
-**2. Story 2: OpenWebUI Backend Integration** 
-Integrate the Maps Agent service with OpenWebUI backend, implementing tool/function registration and LLM tool calling capabilities to trigger map queries from chat prompts.
+**2. Story 2: LLM Tool Integration** 
+Implement LLM tool/function registration and calling capabilities within OpenWebUI backend to trigger map queries from natural language chat prompts, integrating with existing tool infrastructure.
 
 **3. Story 3: Frontend Map Display Components**
 Develop Svelte components to render Google Maps results, place information, and directions inline within the chat interface, including "Open in Google Maps" functionality.
@@ -59,14 +59,14 @@ Develop Svelte components to render Google Maps results, place information, and 
 ## Risk Mitigation
 
 - **Primary Risk**: Google Maps API quota exhaustion or unexpected costs
-- **Mitigation**: Implement strict rate limiting, quota monitoring, and API usage logging in the FastAPI agent
+- **Mitigation**: Implement strict rate limiting, quota monitoring, and API usage logging in the maps router
 - **Rollback Plan**: Disable map tool registration in backend, remove frontend map components - chat functionality returns to original state
 
 ## Definition of Done
 
 - [x] All stories completed with acceptance criteria met
 - [x] Existing chat functionality verified through testing (no regression)
-- [x] Integration points working correctly (LLM → Backend → Maps Agent → Frontend)
+- [x] Integration points working correctly (LLM → Backend Maps Router → Frontend)
 - [x] Documentation updated appropriately (API endpoints, component usage)
 - [x] Security controls verified (API keys secure, rate limiting functional)
 
@@ -80,7 +80,7 @@ Develop Svelte components to render Google Maps results, place information, and 
 
 **Risk Assessment:**
 - [x] Risk to existing system is low (additive functionality only)
-- [x] Rollback plan is feasible (disable new features)
+- [x] Rollback plan is feasible (disable maps router registration and remove frontend components)
 - [x] Testing approach covers existing functionality
 - [x] Team has sufficient knowledge of FastAPI, Svelte, and API integration
 
@@ -119,5 +119,5 @@ The epic should maintain system integrity while delivering **seamless Google Map
 **Epic Status:** ✅ Complete - Ready for Story Development
 **Created:** $(date)
 **Epic Type:** Brownfield Enhancement
-**Estimated Stories:** 3
+**Estimated Stories:** 3 (Story 1.1 completed)
 **Risk Level:** Low 
