@@ -405,6 +405,16 @@ WEBUI_SECRET_KEY = os.environ.get(
     ),  # DEPRECATED: remove at next major version
 )
 
+####################################
+# MAPS
+####################################
+
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
+####################################
+# WEBUI SESSION
+####################################
+
 WEBUI_SESSION_COOKIE_SAME_SITE = os.environ.get("WEBUI_SESSION_COOKIE_SAME_SITE", "lax")
 
 WEBUI_SESSION_COOKIE_SECURE = (
