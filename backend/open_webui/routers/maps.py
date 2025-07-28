@@ -114,9 +114,27 @@ async def get_directions(
 ):
     """
     Get directions using Google Directions API
+    
+    Args:
+        form_data: Request containing origin, destination, and travel mode
+        user: Authenticated user from dependency injection
+        
+    Returns:
+        GetDirectionsResponse: Directions with steps, distance, duration, and maps URL
+        
+    Raises:
+        HTTPException: 400 for invalid input or API errors, 500 for server errors
     """
     try:
-        log.info(f"Get directions request from user {user.id}: {form_data}")
+        log.info(f"Get directions request from user {user.id}: origin='{form_data.origin}', "
+                f"destination='{form_data.destination}', mode='{form_data.mode}'")
+        
+        # Validate required parameters
+        if not form_data.origin or not form_data.destination:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Origin and destination are required parameters"
+            )
         
         # Get maps client and get directions
         maps_client = get_maps_client()
@@ -126,23 +144,41 @@ async def get_directions(
             mode=form_data.mode
         )
         
-        # Convert to Pydantic model
-        directions = DirectionsModel(**directions_data)
+        # Convert to Pydantic model and validate response format
+        try:
+            directions = DirectionsModel(**directions_data)
+        except ValidationError as ve:
+            log.error(f"Failed to validate directions data for user {user.id}: {ve}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid directions data received from Maps API"
+            )
         
-        log.info(f"Successfully got directions for user {user.id}")
+        log.info(f"Successfully got directions for user {user.id}: {len(directions.steps)} steps, "
+                f"distance={directions.distance}, duration={directions.duration}")
+        
         return GetDirectionsResponse(directions=directions)
         
+    except ValidationError as e:
+        log.warning(f"Input validation error in get_directions for user {user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid input parameters: {str(e)}"
+        )
     except MapsClientError as e:
         log.warning(f"Maps client error in get_directions for user {user.id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except HTTPException:
+        # Re-raise HTTP exceptions without modification
+        raise
     except Exception as e:
-        log.exception(f"Error in get_directions for user {user.id}: {e}")
+        log.exception(f"Unexpected error in get_directions for user {user.id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get directions"
+            detail="Failed to get directions due to server error"
         )
 
 ############################

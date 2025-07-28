@@ -53,9 +53,30 @@ class FindPlacesForm(BaseModel):
         return v
 
 class GetDirectionsForm(BaseModel):
-    origin: str
-    destination: str
-    mode: Optional[str] = "driving"
+    origin: str = Field(..., min_length=1, max_length=200, description="Starting location for directions")
+    destination: str = Field(..., min_length=1, max_length=200, description="Destination location for directions")
+    mode: Optional[str] = Field("driving", max_length=20, description="Travel mode: driving, walking, bicycling, transit")
+    
+    @validator('origin')
+    def validate_origin(cls, v):
+        if not v.strip():
+            raise ValueError('Origin cannot be empty or whitespace only')
+        return v.strip()
+    
+    @validator('destination')
+    def validate_destination(cls, v):
+        if not v.strip():
+            raise ValueError('Destination cannot be empty or whitespace only')
+        return v.strip()
+    
+    @validator('mode')
+    def validate_mode(cls, v):
+        if v is not None:
+            v = v.strip().lower()
+            valid_modes = {'driving', 'walking', 'bicycling', 'transit'}
+            if v not in valid_modes:
+                raise ValueError(f'Mode must be one of: {", ".join(valid_modes)}')
+        return v
 
 class PlaceDetailsForm(BaseModel):
     place_id: str
