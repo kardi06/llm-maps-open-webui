@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, ValidationError
 
 from open_webui.models.maps import (
@@ -17,6 +17,11 @@ from open_webui.models.maps import (
 )
 from open_webui.utils.auth import get_verified_user
 from open_webui.utils.maps_client import get_maps_client, MapsClientError
+from open_webui.utils.maps_security import (
+    validate_and_sanitize_maps_input,
+    log_maps_security_event,
+    MapsUsageMonitor
+)
 from open_webui.env import SRC_LOG_LEVELS
 
 log = logging.getLogger(__name__)
@@ -31,6 +36,7 @@ router = APIRouter()
 @router.post("/find_places", response_model=FindPlacesResponse)
 async def find_places(
     form_data: FindPlacesForm,
+    request: Request,
     user=Depends(get_verified_user)
 ):
     """
@@ -50,18 +56,24 @@ async def find_places(
         log.info(f"Find places request from user {user.id}: location='{form_data.location}', "
                 f"query='{form_data.query}', type='{form_data.type}', radius={form_data.radius}")
         
+        # Apply security validation and input sanitization
+        sanitized_input = validate_and_sanitize_maps_input(
+            location=form_data.location,
+            query=form_data.query
+        )
+        
         # Validate required parameters
-        if not form_data.location or not form_data.query:
+        if not sanitized_input.get('location') or not sanitized_input.get('query'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Location and query are required parameters"
             )
         
-        # Get maps client and perform search
+        # Get maps client and perform search with sanitized input
         maps_client = get_maps_client()
         places_data = maps_client.find_places(
-            location=form_data.location,
-            query=form_data.query,
+            location=sanitized_input['location'],
+            query=sanitized_input['query'],
             place_type=form_data.type,
             radius=form_data.radius
         )
@@ -110,6 +122,7 @@ async def find_places(
 @router.post("/get_directions", response_model=GetDirectionsResponse)
 async def get_directions(
     form_data: GetDirectionsForm,
+    request: Request,
     user=Depends(get_verified_user)
 ):
     """
@@ -129,19 +142,26 @@ async def get_directions(
         log.info(f"Get directions request from user {user.id}: origin='{form_data.origin}', "
                 f"destination='{form_data.destination}', mode='{form_data.mode}'")
         
+        # Apply security validation and input sanitization
+        sanitized_input = validate_and_sanitize_maps_input(
+            location=form_data.origin,  # Use location validator for origin
+            query=form_data.destination,  # Use location validator for destination
+            mode=form_data.mode
+        )
+        
         # Validate required parameters
-        if not form_data.origin or not form_data.destination:
+        if not sanitized_input.get('location') or not sanitized_input.get('query'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Origin and destination are required parameters"
             )
         
-        # Get maps client and get directions
+        # Get maps client and get directions with sanitized input
         maps_client = get_maps_client()
         directions_data = maps_client.get_directions(
-            origin=form_data.origin,
-            destination=form_data.destination,
-            mode=form_data.mode
+            origin=sanitized_input['location'],  # origin was stored in location
+            destination=sanitized_input['query'],  # destination was stored in query
+            mode=sanitized_input['mode']
         )
         
         # Convert to Pydantic model and validate response format
@@ -188,6 +208,7 @@ async def get_directions(
 @router.post("/place_details", response_model=PlaceDetailsResponse)
 async def place_details(
     form_data: PlaceDetailsForm,
+    request: Request,
     user=Depends(get_verified_user)
 ):
     """
@@ -206,17 +227,22 @@ async def place_details(
     try:
         log.info(f"Place details request from user {user.id}: place_id='{form_data.place_id}'")
         
+        # Apply security validation and input sanitization
+        sanitized_input = validate_and_sanitize_maps_input(
+            place_id=form_data.place_id
+        )
+        
         # Validate required parameter
-        if not form_data.place_id:
+        if not sanitized_input.get('place_id'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Place ID is required"
             )
         
-        # Get maps client and get place details
+        # Get maps client and get place details with sanitized input
         maps_client = get_maps_client()
         place_details_data = maps_client.get_place_details(
-            place_id=form_data.place_id
+            place_id=sanitized_input['place_id']
         )
         
         # Convert to Pydantic model and validate response format
@@ -255,4 +281,47 @@ async def place_details(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get place details due to server error"
+        )
+
+############################
+# Maps Usage Monitoring
+############################
+
+@router.get("/usage/stats")
+async def get_maps_usage_stats(
+    user=Depends(get_verified_user)
+):
+    """
+    Get Maps API usage statistics for monitoring
+    """
+    try:
+        # Get user-specific stats
+        client_id = f"user:{user.id}"
+        user_stats = MapsUsageMonitor.get_usage_stats(client_id)
+        
+        # Get global stats (admin only for now - simplified)
+        global_stats = MapsUsageMonitor.get_global_usage_stats()
+        
+        log.info(f"Maps usage stats requested by user {user.id}")
+        
+        return {
+            "user_stats": {
+                "total_requests": user_stats.get('total_requests', 0),
+                "requests_today": user_stats.get('requests_today', 0),
+                "last_request": user_stats.get('last_request'),
+                "quota_exceeded_count": user_stats.get('quota_exceeded_count', 0)
+            },
+            "rate_limits": {
+                "requests_per_minute": 10,
+                "requests_per_hour": 100,
+                "requests_per_day": 500
+            },
+            "global_stats": global_stats if user.role == "admin" else None
+        }
+        
+    except Exception as e:
+        log.exception(f"Error getting maps usage stats for user {user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get usage statistics"
         ) 
