@@ -30,6 +30,7 @@ from open_webui.env import (
     WEBUI_AUTH,
     WEBUI_FAVICON_URL,
     WEBUI_NAME,
+    GOOGLE_MAPS_API_KEY,
     log,
 )
 from open_webui.internal.db import Base, get_db

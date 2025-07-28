@@ -44,6 +44,7 @@ openai
 anthropic
 google-genai==1.15.0
 google-generativeai==0.8.5
+googlemaps==4.10.0
 tiktoken
 
 langchain==0.3.26
