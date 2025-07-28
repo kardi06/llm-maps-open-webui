@@ -192,9 +192,26 @@ async def place_details(
 ):
     """
     Get place details using Google Place Details API
+    
+    Args:
+        form_data: Request containing Google Place ID
+        user: Authenticated user from dependency injection
+        
+    Returns:
+        PlaceDetailsResponse: Detailed place information including reviews, photos, and maps URL
+        
+    Raises:
+        HTTPException: 400 for invalid input or API errors, 500 for server errors
     """
     try:
-        log.info(f"Place details request from user {user.id}: {form_data}")
+        log.info(f"Place details request from user {user.id}: place_id='{form_data.place_id}'")
+        
+        # Validate required parameter
+        if not form_data.place_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Place ID is required"
+            )
         
         # Get maps client and get place details
         maps_client = get_maps_client()
@@ -202,21 +219,40 @@ async def place_details(
             place_id=form_data.place_id
         )
         
-        # Convert to Pydantic model
-        place_details = PlaceDetailsModel(**place_details_data)
+        # Convert to Pydantic model and validate response format
+        try:
+            place_details = PlaceDetailsModel(**place_details_data)
+        except ValidationError as ve:
+            log.error(f"Failed to validate place details data for user {user.id}: {ve}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid place details data received from Maps API"
+            )
         
-        log.info(f"Successfully got place details for user {user.id}")
+        log.info(f"Successfully got place details for user {user.id}: "
+                f"place='{place_details.details.get('name', 'Unknown')}', "
+                f"reviews={len(place_details.reviews)}, photos={len(place_details.photos)}")
+        
         return PlaceDetailsResponse(place_details=place_details)
         
+    except ValidationError as e:
+        log.warning(f"Input validation error in place_details for user {user.id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid input parameters: {str(e)}"
+        )
     except MapsClientError as e:
         log.warning(f"Maps client error in place_details for user {user.id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except HTTPException:
+        # Re-raise HTTP exceptions without modification
+        raise
     except Exception as e:
-        log.exception(f"Error in place_details for user {user.id}: {e}")
+        log.exception(f"Unexpected error in place_details for user {user.id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get place details"
+            detail="Failed to get place details due to server error"
         ) 

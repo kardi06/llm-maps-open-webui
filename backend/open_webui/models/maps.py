@@ -79,7 +79,21 @@ class GetDirectionsForm(BaseModel):
         return v
 
 class PlaceDetailsForm(BaseModel):
-    place_id: str
+    place_id: str = Field(..., min_length=10, max_length=100, description="Google Place ID for detailed information")
+    
+    @validator('place_id')
+    def validate_place_id(cls, v):
+        if not v.strip():
+            raise ValueError('Place ID cannot be empty or whitespace only')
+        v = v.strip()
+        # Google Place IDs typically start with specific prefixes
+        if not (v.startswith('ChIJ') or v.startswith('EicS') or v.startswith('GhIJ') or 
+                v.startswith('EkS') or v.startswith('ElS') or len(v) > 10):
+            # Allow any string that looks like it could be a place ID
+            # Google Place IDs are typically 20+ characters and alphanumeric with some special chars
+            if len(v) < 10:
+                raise ValueError('Place ID appears to be too short. Google Place IDs are typically 20+ characters.')
+        return v
 
 # Response Models
 
