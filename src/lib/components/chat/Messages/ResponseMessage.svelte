@@ -679,6 +679,60 @@
 												})}
 											</div>
 										</div>
+									{:else if status?.action === 'find_places'}
+										<div class="flex flex-col justify-center -space-y-0.5">
+											<div
+												class="{status?.done === false
+													? 'shimmer'
+													: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
+											>
+												{#if status?.description.includes('{{query}}')}
+													{$i18n.t(status?.description, {
+														query: status?.query
+													})}
+												{:else if status?.description.includes('{{count}}')}
+													{$i18n.t(status?.description, {
+														count: status?.data?.places?.length ?? 0
+													})}
+												{:else}
+													{status?.description ?? $i18n.t('Finding places near "{{query}}"', {
+														query: status?.query ?? ''
+													})}
+												{/if}
+											</div>
+										</div>
+									{:else if status?.action === 'get_directions'}
+										<div class="flex flex-col justify-center -space-y-0.5">
+											<div
+												class="{status?.done === false
+													? 'shimmer'
+													: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
+											>
+												{#if status?.description.includes('{{duration}}')}
+													{$i18n.t(status?.description, {
+														duration: status?.data?.summary?.total_duration ?? 'unknown'
+													})}
+												{:else}
+													{status?.description ?? $i18n.t('Getting directions...')}
+												{/if}
+											</div>
+										</div>
+									{:else if status?.action === 'place_details'}
+										<div class="flex flex-col justify-center -space-y-0.5">
+											<div
+												class="{status?.done === false
+													? 'shimmer'
+													: ''} text-gray-500 dark:text-gray-500 text-base line-clamp-1 text-wrap"
+											>
+												{#if status?.description.includes('{{placeName}}')}
+													{$i18n.t(status?.description, {
+														placeName: status?.data?.place?.name ?? ''
+													})}
+												{:else}
+													{status?.description ?? $i18n.t('Loading place details...')}
+												{/if}
+											</div>
+										</div>
 									{:else}
 										<div class="flex flex-col justify-center -space-y-0.5">
 											<div

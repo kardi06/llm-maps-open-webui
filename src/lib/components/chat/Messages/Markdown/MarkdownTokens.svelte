@@ -22,6 +22,7 @@
 	import Source from './Source.svelte';
 	import { settings } from '$lib/stores';
 	import HtmlToken from './HTMLToken.svelte';
+	import MapsRenderer from './MapsRenderer.svelte';
 
 	export let id: string;
 	export let tokens: Token[];
@@ -300,7 +301,11 @@
 			</div>
 		</Collapsible>
 	{:else if token.type === 'html'}
-		<HtmlToken {id} {token} {onSourceClick} />
+		{#if token.text?.includes('<maps_response')}
+			<MapsRenderer {id} {token} />
+		{:else}
+			<HtmlToken {id} {token} {onSourceClick} />
+		{/if}
 	{:else if token.type === 'iframe'}
 		<iframe
 			src="{WEBUI_BASE_URL}/api/v1/files/{token.fileId}/content"
