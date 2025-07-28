@@ -13,10 +13,33 @@ import asyncio
 import aiohttp
 import json
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
+from enum import Enum
 
 log = logging.getLogger(__name__)
+
+
+class PlaceType(str, Enum):
+    """Enumeration of supported place types for filtering"""
+    restaurant = "restaurant"
+    gas_station = "gas_station"
+    hospital = "hospital"
+    school = "school"
+    bank = "bank"
+    atm = "atm"
+    pharmacy = "pharmacy"
+    shopping_mall = "shopping_mall"
+    hotel = "hotel"
+    tourist_attraction = "tourist_attraction"
+
+
+class TravelMode(str, Enum):
+    """Enumeration of supported travel modes for directions"""
+    driving = "driving"
+    walking = "walking"
+    transit = "transit"
+    bicycling = "bicycling"
 
 
 class Tools:
@@ -66,19 +89,19 @@ class Tools:
         self,
         location: str,
         query: str,
-        type: Optional[str] = None,
+        type: Optional[PlaceType] = None,
         radius: int = 5000,
         __user__: dict = {},
         __id__: str = None
     ) -> dict:
         """
-        Find places of interest using natural language search.
+        Find places of interest using natural language search. Use this when users ask to find restaurants, shops, services, or any type of place near a location.
         
-        :param location: Current location or search center (e.g., "Jakarta", "Senayan City")
-        :param query: What to search for (e.g., "sushi restaurants", "gas stations", "ATM")
-        :param type: Optional place type filter (restaurant, gas_station, hospital, school, bank, atm)
-        :param radius: Search radius in meters (default: 5000, max: 50000)
-        :return: List of places with details including name, address, coordinates, and rating
+        :param location: Current location or search center. Can be an address, landmark, city name, or coordinates (e.g., "Jakarta", "Senayan City", "Jl. Sudirman No. 1")
+        :param query: What to search for using natural language. Be specific about what the user wants (e.g., "sushi restaurants", "gas stations", "ATM", "coffee shops", "hospitals")
+        :param type: Optional place type to filter results. Valid values: restaurant, gas_station, hospital, school, bank, atm, pharmacy, shopping_mall, hotel, tourist_attraction
+        :param radius: Search radius in meters. Default is 5000m (5km). Minimum: 100m, Maximum: 50000m (50km)
+        :return: Dictionary containing list of places with details including name, address, coordinates, rating, and status message
         """
         try:
             # Validate parameters
@@ -97,7 +120,7 @@ class Tools:
             }
             
             if type:
-                request_data["type"] = type
+                request_data["type"] = type.value if isinstance(type, PlaceType) else type
             
             # Get user token for authentication
             user_token = __user__.get("token", {}).get("credentials", "")
@@ -157,17 +180,17 @@ class Tools:
         self,
         origin: str,
         destination: str,
-        mode: str = "driving",
+        mode: TravelMode = TravelMode.driving,
         __user__: dict = {},
         __id__: str = None
     ) -> dict:
         """
-        Get directions between two locations.
+        Get step-by-step directions between two locations. Use this when users ask how to get from one place to another, need navigation instructions, or want to know travel time and distance.
         
-        :param origin: Starting location (e.g., "Jakarta", "Jl. Sudirman No. 1")
-        :param destination: Destination location (e.g., "Bandung", "Senayan City")  
-        :param mode: Travel mode (driving, walking, transit, bicycling)
-        :return: Directions with steps, distance, duration, and maps URL
+        :param origin: Starting location. Can be an address, landmark, city name, or place name (e.g., "Jakarta", "Jl. Sudirman No. 1", "Soekarno-Hatta Airport")
+        :param destination: Destination location. Can be an address, landmark, city name, or place name (e.g., "Bandung", "Senayan City", "Bogor Station")
+        :param mode: Travel mode for directions. Valid values: driving (default), walking, transit (public transport), bicycling. Choose based on user preference or context
+        :return: Dictionary containing directions with step-by-step instructions, distance, duration, travel mode, and maps URL
         """
         try:
             # Validate parameters
@@ -178,16 +201,19 @@ class Tools:
                     "message": "Origin and destination are required parameters"
                 }
             
+            # Handle travel mode (convert enum to string if needed)
+            mode_value = mode.value if isinstance(mode, TravelMode) else mode
+            
             # Validate travel mode
             valid_modes = ["driving", "walking", "transit", "bicycling"]
-            if mode not in valid_modes:
-                mode = "driving"
+            if mode_value not in valid_modes:
+                mode_value = "driving"
             
             # Prepare request data
             request_data = {
                 "origin": origin,
                 "destination": destination,
-                "mode": mode
+                "mode": mode_value
             }
             
             # Get user token for authentication
@@ -211,7 +237,7 @@ class Tools:
                     "destination": directions_data.get("destination", destination), 
                     "distance": directions_data.get("distance", ""),
                     "duration": directions_data.get("duration", ""),
-                    "travel_mode": mode.title()
+                    "travel_mode": mode_value.title()
                 },
                 "steps": directions_data.get("steps", []),
                 "maps_url": directions_data.get("maps_url", ""),
@@ -221,7 +247,7 @@ class Tools:
             return {
                 "directions": formatted_directions,
                 "status": "success", 
-                "message": f"Directions from {origin} to {destination} via {mode}"
+                "message": f"Directions from {origin} to {destination} via {mode_value}"
             }
             
         except Exception as e:
@@ -239,10 +265,10 @@ class Tools:
         __id__: str = None
     ) -> dict:
         """
-        Get detailed information about a specific place.
+        Get detailed information about a specific place including business hours, contact information, reviews, and photos. Use this when users want more details about a specific place they found or when they ask about opening hours, phone numbers, or reviews.
         
-        :param place_id: Google Place ID (e.g., "ChIJ...")
-        :return: Detailed place information including reviews, photos, hours, and contact info
+        :param place_id: Google Place ID from a previous find_places search result. This is a unique identifier starting with "ChIJ" (e.g., "ChIJN1t_tDeuEmsRUsoyG83frY4")
+        :return: Dictionary containing detailed place information including basic info (name, address, phone, website), location coordinates, business info (hours, price level), reviews, photos, and maps URL
         """
         try:
             # Validate parameters
