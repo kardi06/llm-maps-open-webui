@@ -97,6 +97,34 @@ If you want to see more about the tasks, you can check:
 3. Configure your Google Maps API key in environment variables
 4. Run the application with the enhanced Maps functionality
 
+## 🔧 Installing the Maps Tool in OpenWebUI
+
+Follow these steps to install the Maps tool in your OpenWebUI interface:
+
+### Step 1: Access OpenWebUI
+- Login to your OpenWebUI interface
+
+### Step 2: Navigate to Workspace
+- Go to **Workspace** section in OpenWebUI
+
+### Step 3: Create New Tool
+- Click on **Tools** tab
+- Click **Create New Tool**
+
+### Step 4: Copy Maps Tool Code
+- Copy all the code from `backend/open_webui/tools/maps_tool.py`
+- Paste it into the new tool editor in OpenWebUI
+- Save the tool
+
+### Step 5: Enable Tool in Chat
+- When using chat, don't forget to **checklist the Maps tool** to enable it
+- The tool will now be available for natural language Maps interactions
+
+### ⚠️ Important Notes:
+- Make sure your Google Maps API key is properly configured in your environment variables
+- The Maps tool requires the backend services to be running for full functionality
+- Test the tool with simple queries like "Find restaurants near me" to verify installation
+
 ---
 
 *Built on top of the excellent [Open-webui](https://github.com/open-webui/open-webui) project with enhanced Maps integration capabilities.*

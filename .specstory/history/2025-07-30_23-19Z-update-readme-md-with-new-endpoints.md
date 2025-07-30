@@ -426,3 +426,118 @@ The README now properly showcases your enhanced OpenWebUI project as a professio
 
 ---
 
+_**User**_
+
+and then in readme.md , add step by step to install the tools in openwebui.
+- after login into open-webui
+- go to workspace
+- clik tools tab -> create new tools
+- copy all code from backend/open_webui/tools/maps_tool.py
+- save it
+when using chat, don't forget to checklist the tools
+
+---
+
+_**Assistant**_
+
+<think><details><summary>Thought Process</summary>The user wants me to add a step-by-step installation guide to the README.md file. They want me to add instructions for how to install the maps tool in OpenWebUI by:
+
+1. Logging into OpenWebUI
+2. Going to workspace
+3. Clicking tools tab and creating new tools
+4. Copying all code from backend/open_webui/tools/maps_tool.py
+5. Saving it
+6. Mentioning to checklist the tools when using chat
+
+I need to add this section to the existing README.md file. Let me add this as a new section, probably under the "Getting Started" section or create a new "Installation" section.</details></think>
+
+---
+
+I'll add a step-by-step installation guide for the maps tool to your README.md file.
+
+---
+
+<details><summary>Edit file: README.md</summary>
+
+undefined
+
+**Chunk 1**
+Lines added: 28, lines removed: undefined
+
+```diff
+@@ -97,4 +97,32 @@
+  3. Configure your Google Maps API key in environment variables
+  4. Run the application with the enhanced Maps functionality
++ 
++ ## 🔧 Installing the Maps Tool in OpenWebUI
++ 
++ Follow these steps to install the Maps tool in your OpenWebUI interface:
++ 
++ ### Step 1: Access OpenWebUI
++ - Login to your OpenWebUI interface
++ 
++ ### Step 2: Navigate to Workspace
++ - Go to **Workspace** section in OpenWebUI
++ 
++ ### Step 3: Create New Tool
++ - Click on **Tools** tab
++ - Click **Create New Tool**
++ 
++ ### Step 4: Copy Maps Tool Code
++ - Copy all the code from `backend/open_webui/tools/maps_tool.py`
++ - Paste it into the new tool editor in OpenWebUI
++ - Save the tool
++ 
++ ### Step 5: Enable Tool in Chat
++ - When using chat, don't forget to **checklist the Maps tool** to enable it
++ - The tool will now be available for natural language Maps interactions
++ 
++ ### ⚠️ Important Notes:
++ - Make sure your Google Maps API key is properly configured in your environment variables
++ - The Maps tool requires the backend services to be running for full functionality
++ - Test the tool with simple queries like "Find restaurants near me" to verify installation
+  
+  ---
+```
+
+</details>
+
+---
+
+<think><details><summary>Thought Process</summary>Perfect! I've successfully added the step-by-step installation guide to the README.md file. The new section includes:
+
+1. Clear step-by-step instructions for installing the Maps tool in OpenWebUI
+2. All the steps the user requested:
+   - Login to OpenWebUI
+   - Go to workspace
+   - Click tools tab and create new tool
+   - Copy code from backend/open_webui/tools/maps_tool.py
+   - Save it
+   - Remember to checklist the tool when using chat
+
+3. Added some important notes about:
+   - Google Maps API key configuration
+   - Backend services requirement
+   - Testing suggestions
+
+The formatting is clean and follows the existing README structure with proper emoji icons and clear headings. This should make it easy for users to follow the installation process.</details></think>
+
+---
+
+Perfect! I've added a comprehensive step-by-step installation guide to your README.md file. The new section "🔧 Installing the Maps Tool in OpenWebUI" includes:
+
+✅ **Step 1**: Access OpenWebUI (login)
+✅ **Step 2**: Navigate to Workspace
+✅ **Step 3**: Create New Tool (click Tools tab → Create New Tool)
+✅ **Step 4**: Copy Maps Tool Code (from `backend/open_webui/tools/maps_tool.py`)
+✅ **Step 5**: Enable Tool in Chat (checklist the Maps tool)
+
+I also added important notes about:
+- Google Maps API key configuration requirements
+- Backend services dependency
+- Testing suggestions to verify installation
+
+This makes it easy for users to install and use your Maps tool in their OpenWebUI interface following your exact instructions!
+
+---
+
