@@ -9,13 +9,16 @@ requirements: aiohttp
 
 import logging
 import os
-import aiohttp
 import json
 import uuid
 import time
 from typing import Dict, Any, Optional
 from enum import Enum
 from pydantic import BaseModel, Field, validator
+
+# Import backend utilities directly instead of making HTTP requests
+from open_webui.utils.maps_client import get_maps_client, MapsClientError
+from open_webui.utils.maps_security import validate_and_sanitize_maps_input
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +100,7 @@ class MapsToolError:
         additional_info: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
-        Create a structured success response optimized for LLM consumption
+        Create a structured success response optimized for LLM consumption and frontend map display
         
         Args:
             function_name: Name of the function
@@ -106,12 +109,16 @@ class MapsToolError:
             additional_info: Additional context information
             
         Returns:
-            Structured success response
+            Structured success response compatible with frontend MapsRenderer
         """
+        # Create frontend-compatible response format for map display
         response = {
+            "type": "maps_response",
+            "action": function_name,
             "status": "success",
             "message": message,
-            **data  # Merge main data into response
+            "data": data,
+            **data  # Also merge data at root level for LLM compatibility
         }
         
         if additional_info:
@@ -119,6 +126,15 @@ class MapsToolError:
         
         # Log successful operation for monitoring
         log.info(f"Maps tool success in {function_name}: {message}")
+        
+        # For frontend map display, we need to include HTML in the message
+        # The LLM will include this HTML in its response, which gets parsed by MarkdownTokens
+        import json
+        json_response = json.dumps(response)
+        html_content = f'<maps_response>{json_response}</maps_response>'
+        
+        # Add HTML content to the response message so LLM includes it
+        response["message"] = f'{message}\n\n{html_content}'
         
         return response
 
@@ -548,11 +564,23 @@ class Tools:
     """
     
     def __init__(self):
-        # Get backend URL from environment or use default
-        backend_url = os.getenv("OPENWEBUI_BACKEND_URL", "http://localhost:8080")
-        self.base_url = f"{backend_url}/api/v1/maps"
-        self.timeout = aiohttp.ClientTimeout(total=30)
-        log.info(f"Maps tool initialized with base URL: {self.base_url}")
+        # No longer need HTTP client setup since we're calling functions directly
+        log.info("Maps tool initialized for direct function calls")
+    
+    def format_opening_hours_data(self, opening_hours_data):
+        """Format opening hours data for consistent response structure.
+        
+        Note: Renamed from _format_opening_hours to avoid tool exposure.
+        Private methods starting with underscore can be incorrectly exposed as tools.
+        """
+        if not opening_hours_data:
+            return None
+            
+        return {
+            "open_now": opening_hours_data.get("open_now"),
+            "weekday_text": opening_hours_data.get("weekday_text", []),
+            "periods": opening_hours_data.get("periods", [])
+        }
     
     async def find_places(
         self,
@@ -666,75 +694,64 @@ class Tools:
             if not type and enhanced_params['type']:  # Use suggested type if none provided
                 type = enhanced_params['type']
             
-            # Extract user token for authentication (OpenWebUI middleware integration)
-            user_token = __user__.get("token") if __user__ else None
+            # Call backend functions directly instead of making HTTP requests
+            # This eliminates authentication forwarding issues
             
-            # Map LLM function call parameters to maps API parameters
-            request_data = {
-                "location": location,  # Sanitized parameter mapping
-                "query": query,        # Sanitized parameter mapping
-                "radius": radius       # Validated integer parameter
+            # Apply security validation and input sanitization (same as backend router)
+            sanitized_input = validate_and_sanitize_maps_input(
+                location=location,
+                query=query
+            )
+            
+            # Get maps client and perform search with sanitized input
+            maps_client = get_maps_client()
+            places_data = maps_client.find_places(
+                location=sanitized_input['location'],
+                query=sanitized_input['query'],
+                place_type=type.value if isinstance(type, PlaceType) else type,
+                radius=radius
+            )
+            
+            # Transform maps client response to expected format
+            places = []
+            for place in places_data:
+                place_info = {
+                    "name": place.get("name", ""),
+                    "address": place.get("vicinity", place.get("formatted_address", "")),
+                    "lat": place.get("geometry", {}).get("location", {}).get("lat", 0),
+                    "lng": place.get("geometry", {}).get("location", {}).get("lng", 0),
+                    "place_id": place.get("place_id", ""),
+                    "rating": place.get("rating"),
+                    "open_now": place.get("opening_hours", {}).get("open_now"),
+                    "price_level": place.get("price_level"),
+                    "types": place.get("types", [])
+                }
+                places.append(place_info)
+            
+            # Create enhanced success response for LLM consumption
+            additional_info = {
+                "search_query": query,
+                "search_location": location,
+                "search_radius": f"{radius}m"
             }
             
-            # Handle enum parameter mapping (PlaceType -> string)
-            if type:
-                request_data["type"] = type.value if isinstance(type, PlaceType) else type
+            # Include natural language processing insights
+            if enhanced_params.get('enhancements'):
+                additional_info['nlp_enhancements'] = enhanced_params['enhancements']
             
-            # Set up headers with authentication
-            headers = {"Content-Type": "application/json"}
-            if user_token:
-                headers["Authorization"] = f"Bearer {user_token}"
-            
-            # Make request to maps router
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                async with session.post(
-                    f"{self.base_url}/find_places",
-                    json=request_data,
-                    headers=headers
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        places = result.get("places", [])
+            return MapsToolError.create_success_response(
+                function_name="find_places",
+                data={"places": places},
+                message=f"Found {len(places)} places matching your search for '{query}' near {location}",
+                additional_info=additional_info
+            )
                         
-                        # Create enhanced success response for LLM consumption
-                        additional_info = {
-                            "search_query": query,
-                            "search_location": location,
-                            "search_radius": f"{radius}m"
-                        }
-                        
-                        # Include natural language processing insights
-                        if enhanced_params.get('enhancements'):
-                            additional_info['nlp_enhancements'] = enhanced_params['enhancements']
-                        
-                        return MapsToolError.create_success_response(
-                            function_name="find_places",
-                            data={"places": places},
-                            message=f"Found {len(places)} places matching your search for '{query}' near {location}",
-                            additional_info=additional_info
-                        )
-                    else:
-                        error_detail = await response.text()
-                        error_type = "auth" if response.status == 401 else \
-                                   "rate_limit" if response.status == 429 else \
-                                   "api"
-                        
-                        error_response = MapsToolError.create_error_response(
-                            function_name="find_places",
-                            error_message=error_detail,
-                            error_type=error_type,
-                            status_code=response.status,
-                            user_id=__user__.get("id") if __user__ else None
-                        )
-                        error_response["places"] = []  # Add expected field for consistency
-                        return error_response
-                        
-        except aiohttp.ClientError as e:
-            # Network/connection errors
+        except MapsClientError as e:
+            # Maps API specific errors
             error_response = MapsToolError.create_error_response(
                 function_name="find_places",
                 error_message=str(e),
-                error_type="network",
+                error_type="api",
                 user_id=__user__.get("id") if __user__ else None
             )
             error_response["places"] = []
@@ -861,75 +878,75 @@ class Tools:
             if enhanced_params['mode'] != mode:  # Use suggested mode if different
                 mode = enhanced_params['mode']
             
-            # Extract user token for authentication (OpenWebUI middleware integration)
-            user_token = __user__.get("token") if __user__ else None
+            # Call backend functions directly instead of making HTTP requests
+            # This eliminates authentication forwarding issues
             
-            # Map LLM function call parameters to maps API parameters
-            request_data = {
-                "origin": origin,           # Sanitized parameter mapping
-                "destination": destination, # Sanitized parameter mapping
-                "mode": mode.value if isinstance(mode, TravelMode) else mode  # Enum mapping
+            # Apply security validation and input sanitization (same as backend router)
+            sanitized_input = validate_and_sanitize_maps_input(
+                location=origin,  # Use origin as location for validation
+                query=destination  # Use destination as query for validation
+            )
+            
+            # Get maps client and get directions with sanitized input
+            maps_client = get_maps_client()
+            route_data = maps_client.get_directions(
+                origin=sanitized_input['location'],  # origin
+                destination=sanitized_input['query'],  # destination
+                mode=mode.value if isinstance(mode, TravelMode) else mode
+            )
+            
+            # Transform maps client response to expected format
+            route = {}
+            if route_data and len(route_data) > 0:
+                route_info = route_data[0]  # Take first route
+                legs = route_info.get("legs", [])
+                if legs:
+                    leg = legs[0]  # Take first leg
+                    route = {
+                        "distance": leg.get("distance", {}).get("text", "Unknown"),
+                        "duration": leg.get("duration", {}).get("text", "Unknown"),
+                        "start_address": leg.get("start_address", origin),
+                        "end_address": leg.get("end_address", destination),
+                        "steps": [
+                            {
+                                "instruction": step.get("html_instructions", ""),
+                                "distance": step.get("distance", {}).get("text", ""),
+                                "duration": step.get("duration", {}).get("text", ""),
+                                "maneuver": step.get("maneuver", "")
+                            }
+                            for step in leg.get("steps", [])
+                        ],
+                        "overview_polyline": route_info.get("overview_polyline", {}).get("points", "")
+                    }
+            
+            # Create enhanced success response for LLM consumption
+            additional_info = {
+                "travel_mode": mode.value if hasattr(mode, 'value') else mode,
+                "origin": origin,
+                "destination": destination,
+                "summary": {
+                    "distance": route.get("distance", "Unknown"),
+                    "duration": route.get("duration", "Unknown")
+                }
             }
             
-            # Set up headers with authentication
-            headers = {"Content-Type": "application/json"}
-            if user_token:
-                headers["Authorization"] = f"Bearer {user_token}"
+            # Include natural language processing insights
+            if enhanced_params.get('enhancements'):
+                additional_info['nlp_enhancements'] = enhanced_params['enhancements']
             
-            # Make request to maps router
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                async with session.post(
-                    f"{self.base_url}/get_directions",
-                    json=request_data,
-                    headers=headers
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        route = result.get("route", {})
+            return MapsToolError.create_success_response(
+                function_name="get_directions",
+                data={"route": route},
+                message=f"Route from {origin} to {destination} found via {mode.value if hasattr(mode, 'value') else mode}",
+                additional_info=additional_info
+            )
                         
-                        # Create enhanced success response for LLM consumption
-                        additional_info = {
-                            "travel_mode": mode.value if hasattr(mode, 'value') else mode,
-                            "origin": origin,
-                            "destination": destination,
-                            "summary": {
-                                "distance": route.get("distance", "Unknown"),
-                                "duration": route.get("duration", "Unknown")
-                            }
-                        }
-                        
-                        # Include natural language processing insights
-                        if enhanced_params.get('enhancements'):
-                            additional_info['nlp_enhancements'] = enhanced_params['enhancements']
-                        
-                        return MapsToolError.create_success_response(
-                            function_name="get_directions",
-                            data={"route": route},
-                            message=f"Route from {origin} to {destination} found via {mode.value if hasattr(mode, 'value') else mode}",
-                            additional_info=additional_info
-                        )
-                    else:
-                        error_detail = await response.text()
-                        error_type = "auth" if response.status == 401 else \
-                                   "rate_limit" if response.status == 429 else \
-                                   "api"
-                        
-                        error_response = MapsToolError.create_error_response(
-                            function_name="get_directions",
-                            error_message=error_detail,
-                            error_type=error_type,
-                            status_code=response.status,
-                            user_id=__user__.get("id") if __user__ else None
-                        )
-                        error_response["route"] = {}  # Add expected field for consistency
-                        return error_response
-                        
-        except aiohttp.ClientError as e:
-            # Network/connection errors
+        except MapsClientError as e:
+            # Maps API specific errors
             error_response = MapsToolError.create_error_response(
                 function_name="get_directions",
                 error_message=str(e),
-                error_type="network",
+                error_type="api",
                 user_id=__user__.get("id") if __user__ else None
             )
             error_response["route"] = {}
@@ -1028,66 +1045,65 @@ class Tools:
                 error_response["details"] = {}
                 return error_response
             
-            # Extract user token for authentication (OpenWebUI middleware integration)
-            user_token = __user__.get("token") if __user__ else None
+            # Call backend functions directly instead of making HTTP requests
+            # This eliminates authentication forwarding issues
             
-            # Map LLM function call parameters to maps API parameters
-            request_data = {
-                "place_id": place_id  # Validated parameter mapping
-            }
+            # Get maps client and get place details
+            maps_client = get_maps_client()
+            place_data = maps_client.get_place_details(place_id=place_id)
             
-            # Set up headers with authentication
-            headers = {"Content-Type": "application/json"}
-            if user_token:
-                headers["Authorization"] = f"Bearer {user_token}"
+            # Transform maps client response to expected format
+            details = {}
+            if place_data:
+                details = {
+                    "name": place_data.get("name", ""),
+                    "address": place_data.get("formatted_address", ""),
+                    "phone": place_data.get("formatted_phone_number", place_data.get("international_phone_number")),
+                    "website": place_data.get("website"),
+                    "rating": place_data.get("rating"),
+                    "user_ratings_total": place_data.get("user_ratings_total"),
+                    "price_level": place_data.get("price_level"),
+                    "hours": self.format_opening_hours_data(place_data.get("opening_hours")),
+                    "types": place_data.get("types", []),
+                    "geometry": place_data.get("geometry", {}),
+                    "photos": [
+                        maps_client.get_photo_url(photo.get("photo_reference"))
+                        for photo in place_data.get("photos", [])[:3]  # Limit to 3 photos
+                        if photo.get("photo_reference")
+                    ],
+                    "reviews": [
+                        {
+                            "author_name": review.get("author_name"),
+                            "rating": review.get("rating"),
+                            "text": review.get("text"),
+                            "time": review.get("time")
+                        }
+                        for review in place_data.get("reviews", [])[:3]  # Limit to 3 reviews
+                    ]
+                }
             
-            # Make request to maps router
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                async with session.post(
-                    f"{self.base_url}/place_details",
-                    json=request_data,
-                    headers=headers
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        details = result.get("details", {})
-                        place_name = details.get("name", "Unknown Place")
+            place_name = details.get("name", "Unknown Place")
+            
+            # Create enhanced success response for LLM consumption
+            return MapsToolError.create_success_response(
+                function_name="place_details",
+                data={"details": details},
+                message=f"Retrieved detailed information for {place_name}",
+                additional_info={
+                    "place_id": place_id,
+                    "place_name": place_name,
+                    "has_rating": "rating" in details and details["rating"] is not None,
+                    "has_hours": "hours" in details and details["hours"] is not None,
+                    "has_contact": any(details.get(key) for key in ["phone", "website"])
+                }
+            )
                         
-                        # Create enhanced success response for LLM consumption
-                        return MapsToolError.create_success_response(
-                            function_name="place_details",
-                            data={"details": details},
-                            message=f"Retrieved detailed information for {place_name}",
-                            additional_info={
-                                "place_id": place_id,
-                                "place_name": place_name,
-                                "has_rating": "rating" in details,
-                                "has_hours": "hours" in details,
-                                "has_contact": any(key in details for key in ["phone", "website"])
-                            }
-                        )
-                    else:
-                        error_detail = await response.text()
-                        error_type = "auth" if response.status == 401 else \
-                                   "rate_limit" if response.status == 429 else \
-                                   "api"
-                        
-                        error_response = MapsToolError.create_error_response(
-                            function_name="place_details",
-                            error_message=error_detail,
-                            error_type=error_type,
-                            status_code=response.status,
-                            user_id=__user__.get("id") if __user__ else None
-                        )
-                        error_response["details"] = {}  # Add expected field for consistency
-                        return error_response
-                        
-        except aiohttp.ClientError as e:
-            # Network/connection errors
+        except MapsClientError as e:
+            # Maps API specific errors
             error_response = MapsToolError.create_error_response(
                 function_name="place_details",
                 error_message=str(e),
-                error_type="network",
+                error_type="api",
                 user_id=__user__.get("id") if __user__ else None
             )
             error_response["details"] = {}

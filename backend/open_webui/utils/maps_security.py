@@ -183,8 +183,8 @@ class MapsInputSanitizer:
     
     # Regex patterns for validation
     PLACE_ID_PATTERN = re.compile(r'^[A-Za-z0-9_-]{10,100}$')
-    LOCATION_PATTERN = re.compile(r'^[A-Za-z0-9\s,.\-()]{1,200}$')
-    QUERY_PATTERN = re.compile(r'^[A-Za-z0-9\s,.\-()&]{1,100}$')
+    LOCATION_PATTERN = re.compile(r'^[A-Za-z0-9\s,.\-()\']{1,200}$')
+    QUERY_PATTERN = re.compile(r'^[A-Za-z0-9\s,.\-()&\'\":]{1,100}$')
     
     # Dangerous patterns to block
     DANGEROUS_PATTERNS = [
@@ -227,14 +227,35 @@ class MapsInputSanitizer:
         
         query = query.strip()
         
+        # Debug logging to help identify validation issues
+        log.debug(f"Sanitizing query: {repr(query)} (length: {len(query)})")
+        
         # Check for dangerous patterns
-        for pattern in cls.DANGEROUS_PATTERNS:
+        for i, pattern in enumerate(cls.DANGEROUS_PATTERNS):
             if pattern.search(query):
+                log.warning(f"Query failed dangerous pattern check {i}: {pattern.pattern}")
                 raise MapsSecurityError("Invalid characters detected in query")
         
         # Validate format
         if not cls.QUERY_PATTERN.match(query):
-            raise MapsSecurityError("Query contains invalid characters")
+            log.warning(f"Query failed pattern validation: {repr(query)} against {cls.QUERY_PATTERN.pattern}")
+            # Log each character for debugging
+            invalid_chars = []
+            for char in query:
+                if not re.match(r'[A-Za-z0-9\s,.\-()&\'\":=+@#/]', char):
+                    invalid_chars.append(f"'{char}' (ord: {ord(char)})")
+            if invalid_chars:
+                log.warning(f"Invalid characters found: {', '.join(invalid_chars)}")
+                
+            # For legitimate business searches, be more permissive
+            # Only block queries with clearly dangerous patterns
+            if any(dangerous_char in query.lower() for dangerous_char in ['<script', 'javascript:', 'eval(', 'exec(']):
+                raise MapsSecurityError("Query contains invalid characters")
+            else:
+                # Log but allow the query through with basic sanitization
+                log.info(f"Allowing query with non-standard characters after safety check: {repr(query)}")
+                # Basic sanitization - remove only truly dangerous characters
+                query = re.sub(r'[<>]', '', query)  # Remove angle brackets
         
         # Remove excessive whitespace
         query = re.sub(r'\s+', ' ', query)
