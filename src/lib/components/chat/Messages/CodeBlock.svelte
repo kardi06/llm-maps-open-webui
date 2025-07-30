@@ -11,6 +11,7 @@
 	import PyodideWorker from '$lib/workers/pyodide.worker?worker';
 	import CodeEditor from '$lib/components/common/CodeEditor.svelte';
 	import SvgPanZoom from '$lib/components/common/SVGPanZoom.svelte';
+	import MapsRenderer from './Markdown/MapsRenderer.svelte';
 	import { config } from '$lib/stores';
 	import { executeCode } from '$lib/apis/utils';
 	import { toast } from 'svelte-sonner';
@@ -55,6 +56,8 @@
 	let _token = null;
 
 	let mermaidHtml = null;
+	let mapsData = null;
+	let mapsError = null;
 
 	let highlightedCode = null;
 	let executing = false;
@@ -335,10 +338,33 @@
 		}
 	};
 
+	const processMapsData = async () => {
+		try {
+			// Parse JSON from maps code block
+			const parsedData = JSON.parse(code);
+			
+			// Validate maps data structure
+			if (parsedData && parsedData.type === 'maps_response' && parsedData.data) {
+				mapsData = parsedData;
+				mapsError = null;
+			} else {
+				throw new Error('Invalid maps data structure');
+			}
+		} catch (error) {
+			console.log('Maps parsing error:', error);
+			mapsError = `Failed to parse maps data: ${error.message}`;
+			mapsData = null;
+		}
+	};
+
 	const render = async () => {
 		if (lang === 'mermaid' && (token?.raw ?? '').slice(-4).includes('```')) {
 			(async () => {
 				await drawMermaidDiagram();
+			})();
+		} else if (lang === 'maps' && (token?.raw ?? '').slice(-4).includes('```')) {
+			(async () => {
+				await processMapsData();
 			})();
 		}
 
@@ -423,6 +449,20 @@
 				/>
 			{:else}
 				<pre class="mermaid">{code}</pre>
+			{/if}
+		{:else if lang === 'maps'}
+			{#if mapsData}
+				<MapsRenderer 
+					id={`maps-${uuidv4()}`}
+					token={{ type: 'html', text: `<maps_response>${JSON.stringify(mapsData)}</maps_response>` }}
+				/>
+			{:else if mapsError}
+				<div class="border border-red-200 dark:border-red-800 rounded-lg p-4 bg-red-50 dark:bg-red-900/20">
+					<p class="text-red-600 dark:text-red-400">Maps Error: {mapsError}</p>
+					<pre class="mt-2 text-sm">{code}</pre>
+				</div>
+			{:else}
+				<pre class="maps">{code}</pre>
 			{/if}
 		{:else}
 			<div class="text-text-300 absolute pl-4 py-1.5 text-xs font-medium dark:text-white">

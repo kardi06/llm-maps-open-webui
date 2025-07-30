@@ -28,43 +28,41 @@ log = logging.getLogger(__name__)
 # Error handling and monitoring utilities
 class MapsToolError:
     """Utility class for generating structured error responses with monitoring support"""
-
+    
     @staticmethod
     def create_error_response(
         function_name: str,
         error_message: str,
         error_type: str = "general",
         status_code: Optional[int] = None,
-        user_id: Optional[str] = None,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Create a structured error response with logging and monitoring support
-
+        
         Args:
             function_name: Name of the function where error occurred
             error_message: Description of the error
             error_type: Category of error (auth, rate_limit, validation, api, network, general)
             status_code: HTTP status code if applicable
             user_id: User ID for audit logging
-
+            
         Returns:
             Structured error response for LLM consumption
         """
         error_id = str(uuid.uuid4())[:8]  # Short error ID for reference
         timestamp = int(time.time())
-
+        
         # Create user-friendly error message based on type
-        user_message = MapsToolError._get_user_friendly_message(
-            error_type, error_message, status_code
-        )
-
+        user_message = MapsToolError._get_user_friendly_message(error_type, error_message, status_code)
+        
         # Log error for monitoring
         log.error(
             f"Maps tool error in {function_name} [ID: {error_id}] "
             f"Type: {error_type}, Status: {status_code}, User: {user_id}, "
             f"Error: {error_message}"
         )
-
+        
         # Return structured error response
         return {
             "status": "error",
@@ -74,14 +72,12 @@ class MapsToolError:
                 "function": function_name,
                 "type": error_type,
                 "timestamp": timestamp,
-                "original_error": error_message,
-            },
+                "original_error": error_message
+            }
         }
-
+    
     @staticmethod
-    def _get_user_friendly_message(
-        error_type: str, error_message: str, status_code: Optional[int]
-    ) -> str:
+    def _get_user_friendly_message(error_type: str, error_message: str, status_code: Optional[int]) -> str:
         """Generate user-friendly error messages based on error type"""
         if error_type == "auth":
             return "Authentication failed. Please check your credentials and try again."
@@ -97,24 +93,23 @@ class MapsToolError:
             return "Network connection failed. Please check your internet connection and try again."
         else:
             return f"An error occurred while processing your request: {error_message}"
-
+    
     @staticmethod
     async def create_success_response(
         function_name: str,
         data: Dict[str, Any],
         message: str,
-        additional_info: Optional[Dict] = None,
-        __event_emitter__=None,
+        additional_info: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
         Create a structured success response optimized for LLM consumption and frontend map display
-
+        
         Args:
             function_name: Name of the function
             data: Main response data
             message: Human-readable success message
             additional_info: Additional context information
-
+            
         Returns:
             Structured success response compatible with frontend MapsRenderer
         """
@@ -124,45 +119,35 @@ class MapsToolError:
             "action": function_name,
             "status": "success",
             "message": message,
-            "data": data,
+            "data": data
             # ✅ REMOVED: **data duplication that was causing confusion
         }
-
+        
         if additional_info:
             response.update(additional_info)
-
+        
         # Log successful operation for monitoring
         log.info(f"Maps tool success in {function_name}: {message}")
-
-        # ✅ SOLUTION: Use OpenWebUI Event Emitters to send HTML directly to chat
+        
+        # ✅ SOLUTION: Use code block approach (like MermaidJS)
         import json
+        json_response = json.dumps(response, indent=2)
+        
+        # Return as code block - LLMs preserve code blocks but summarize regular content
+        return f"""🗺️ Found {len(response['data']['places'])} locations near {response.get('search_location', 'your search area')}:
 
-        json_response = json.dumps(response)
+```maps
+{json_response}
+```
 
-        # Send HTML directly to chat interface using event emitter
-        if __event_emitter__:
-            await __event_emitter__(
-                {
-                    "type": "message",
-                    "data": {
-                        "content": f"<maps_response>{json_response}</maps_response>"
-                    },
-                }
-            )
-
-            # Return simple confirmation message
-            return f"🗺️ Interactive map displayed above showing {len(response['data']['places'])} locations"
-        else:
-            # Fallback if no event emitter available
-            return f"Maps found but cannot display interactive map. Found {len(response['data']['places'])} locations."
+The interactive map is displayed above with all the locations."""
 
 
 # Pydantic Models for Parameter Validation
 class PlaceType(str, Enum):
     """Enumeration of supported place types for filtering searches"""
-
     restaurant = "restaurant"
-    gas_station = "gas_station"
+    gas_station = "gas_station" 
     hospital = "hospital"
     school = "school"
     bank = "bank"
@@ -173,7 +158,6 @@ class PlaceType(str, Enum):
 
 class TravelMode(str, Enum):
     """Enumeration of supported travel modes for directions"""
-
     driving = "driving"
     walking = "walking"
     transit = "transit"
@@ -183,192 +167,181 @@ class TravelMode(str, Enum):
 # Security and validation utilities
 class LocationValidator:
     """Input validation and sanitization for location data"""
-
+    
     @staticmethod
     def validate_location(location: str) -> bool:
         """Validate location string for security and format"""
         if not location or not isinstance(location, str):
             return False
-
+        
         # Check length constraints
         if len(location.strip()) < 2 or len(location) > 200:
             return False
-
+        
         # Check for malicious patterns
         dangerous_patterns = [
-            "<script",
-            "</script>",
-            "javascript:",
-            "data:",
-            "vbscript:",
-            "onload=",
-            "onerror=",
-            "onclick=",
-            "<iframe",
-            "</iframe>",
-            "eval(",
-            "alert(",
-            "document.",
-            "window.",
+            '<script', '</script>', 'javascript:', 'data:', 'vbscript:',
+            'onload=', 'onerror=', 'onclick=', '<iframe', '</iframe>',
+            'eval(', 'alert(', 'document.', 'window.'
         ]
-
+        
         location_lower = location.lower()
         for pattern in dangerous_patterns:
             if pattern in location_lower:
                 return False
-
+        
         return True
-
+    
     @staticmethod
     def sanitize_location(location: str) -> str:
         """Sanitize location string"""
         if not isinstance(location, str):
             return ""
-
+        
         # Remove dangerous characters and normalize whitespace
         import re
-
-        sanitized = re.sub(r'[<>"\'\`]', "", location)
-        sanitized = re.sub(r"\s+", " ", sanitized.strip())
+        sanitized = re.sub(r'[<>"\'\`]', '', location)
+        sanitized = re.sub(r'\s+', ' ', sanitized.strip())
         return sanitized[:200]  # Enforce length limit
-
+    
     @staticmethod
     def validate_place_id(place_id: str) -> bool:
         """Validate Google Places ID format"""
         if not place_id or not isinstance(place_id, str):
             return False
-
+        
         # Google Place IDs typically start with ChIJ and are alphanumeric + special chars
         if len(place_id) < 10 or len(place_id) > 200:
             return False
-
+        
         # Basic format check (starts with known prefixes)
-        valid_prefixes = ["ChIJ", "EiQ", "EkQ", "EmQ"]
+        valid_prefixes = ['ChIJ', 'EiQ', 'EkQ', 'EmQ']
         if not any(place_id.startswith(prefix) for prefix in valid_prefixes):
             return False
-
+        
         return True
 
 
 class MapsUsageTracker:
     """Rate limiting and usage monitoring for maps functions"""
-
+    
     # Class-level storage for usage tracking (in production, use Redis or database)
     _usage_data = {}
-
+    
     # Rate limits per function per hour
     RATE_LIMITS = {
-        "find_places": 100,  # 100 searches per hour
-        "get_directions": 50,  # 50 direction requests per hour
-        "place_details": 200,  # 200 detail requests per hour (lighter operation)
+        "find_places": 100,     # 100 searches per hour
+        "get_directions": 50,   # 50 direction requests per hour
+        "place_details": 200    # 200 detail requests per hour (lighter operation)
     }
-
+    
     @classmethod
     def check_rate_limit(cls, user_id: str, function_name: str) -> bool:
         """
         Check if user has exceeded rate limit for function
-
+        
         Args:
             user_id: User identifier
             function_name: Name of the function being called
-
+            
         Returns:
             True if within limit, False if exceeded
         """
         if not user_id or function_name not in cls.RATE_LIMITS:
             return True  # Allow if no user ID or unknown function
-
+        
         current_time = time.time()
         key = f"{user_id}:{function_name}"
-
+        
         # Initialize if not exists
         if key not in cls._usage_data:
             cls._usage_data[key] = []
-
+        
         # Remove old entries (older than 1 hour)
         cls._usage_data[key] = [
-            timestamp
-            for timestamp in cls._usage_data[key]
+            timestamp for timestamp in cls._usage_data[key] 
             if current_time - timestamp < 3600
         ]
-
+        
         # Check if under limit
         current_usage = len(cls._usage_data[key])
         limit = cls.RATE_LIMITS[function_name]
-
+        
         if current_usage >= limit:
-            log.warning(
-                f"Rate limit exceeded for user {user_id} on {function_name}: {current_usage}/{limit}"
-            )
+            log.warning(f"Rate limit exceeded for user {user_id} on {function_name}: {current_usage}/{limit}")
             return False
-
+        
         # Record this usage
         cls._usage_data[key].append(current_time)
         return True
-
+    
     @classmethod
     def get_usage_stats(cls, user_id: str) -> Dict[str, Any]:
         """Get current usage statistics for a user"""
         current_time = time.time()
         stats = {}
-
+        
         for function_name in cls.RATE_LIMITS:
             key = f"{user_id}:{function_name}"
             if key in cls._usage_data:
                 # Count recent usage
-                recent_usage = len(
-                    [t for t in cls._usage_data[key] if current_time - t < 3600]
-                )
+                recent_usage = len([
+                    t for t in cls._usage_data[key] 
+                    if current_time - t < 3600
+                ])
                 stats[function_name] = {
                     "used": recent_usage,
                     "limit": cls.RATE_LIMITS[function_name],
-                    "remaining": max(0, cls.RATE_LIMITS[function_name] - recent_usage),
+                    "remaining": max(0, cls.RATE_LIMITS[function_name] - recent_usage)
                 }
             else:
                 stats[function_name] = {
                     "used": 0,
                     "limit": cls.RATE_LIMITS[function_name],
-                    "remaining": cls.RATE_LIMITS[function_name],
+                    "remaining": cls.RATE_LIMITS[function_name]
                 }
-
+        
         return stats
 
 
 class SecurityValidator:
     """Security validation for maps tool access"""
-
+    
     @staticmethod
     def validate_user_permissions(user: Dict[str, Any], function_name: str) -> bool:
         """
         Validate user permissions for maps functionality
-
+        
         Args:
             user: User context from OpenWebUI
             function_name: Name of the function being called
-
+            
         Returns:
             True if user has permission, False otherwise
         """
         if not user:
             log.warning(f"No user context provided for {function_name}")
             return False
-
+        
         # Check if user has required role (basic user role should be sufficient)
         user_role = user.get("role", "user")
         if user_role not in ["user", "admin"]:
             log.warning(f"Invalid user role {user_role} for maps access")
             return False
-
+        
         # Check if user account is active
         if user.get("is_active") is False:
             log.warning(f"Inactive user {user.get('id')} attempted maps access")
             return False
-
+        
         return True
-
+    
     @staticmethod
     def log_security_event(
-        event_type: str, user_id: Optional[str], function_name: str, details: str
+        event_type: str, 
+        user_id: Optional[str], 
+        function_name: str, 
+        details: str
     ) -> None:
         """Log security-related events for audit purposes"""
         log.warning(
@@ -380,41 +353,41 @@ class SecurityValidator:
 # Natural Language Processing utilities
 class LocationParser:
     """Enhanced location parsing and normalization for natural language queries"""
-
+    
     @staticmethod
     def normalize_location(location: str) -> str:
         """Normalize location strings for better API compatibility"""
         if not isinstance(location, str):
             return ""
-
+        
         # Handle common variations
         location = location.strip()
-
+        
         # Normalize common location expressions
         normalizations = {
-            "current location": "current location",
-            "my location": "current location",
-            "here": "current location",
-            "near me": "current location",
-            "where i am": "current location",
+            'current location': 'current location',
+            'my location': 'current location',
+            'here': 'current location',
+            'near me': 'current location',
+            'where i am': 'current location',
         }
-
+        
         location_lower = location.lower()
         for phrase, normalized in normalizations.items():
             if phrase in location_lower:
                 return normalized
-
+        
         return location
-
+    
     @staticmethod
     def extract_coordinates(location: str) -> Optional[Dict[str, float]]:
         """Extract coordinates if location string contains them"""
         import re
-
+        
         # Pattern for latitude,longitude (e.g., "-6.2088,106.8456")
-        coord_pattern = r"(-?\d+\.?\d*),\s*(-?\d+\.?\d*)"
+        coord_pattern = r'(-?\d+\.?\d*),\s*(-?\d+\.?\d*)'
         match = re.search(coord_pattern, location)
-
+        
         if match:
             try:
                 lat, lng = float(match.group(1)), float(match.group(2))
@@ -423,41 +396,33 @@ class LocationParser:
                     return {"lat": lat, "lng": lng}
             except ValueError:
                 pass
-
+        
         return None
 
 
 class QueryEnhancer:
     """Enhance search queries based on natural language patterns"""
-
+    
     # Common place type keywords and their mappings
     PLACE_TYPE_KEYWORDS = {
-        "restaurant": [
-            "restaurant",
-            "food",
-            "eat",
-            "dining",
-            "cafe",
-            "eatery",
-            "bistro",
-        ],
-        "gas_station": ["gas", "petrol", "fuel", "gasoline", "station"],
-        "hospital": ["hospital", "medical", "clinic", "health", "doctor", "emergency"],
-        "school": ["school", "education", "university", "college", "academy"],
-        "bank": ["bank", "atm", "banking", "financial"],
-        "pharmacy": ["pharmacy", "drugstore", "medicine", "drugs"],
-        "grocery_store": ["grocery", "supermarket", "market", "store"],
-        "tourist_attraction": ["tourist", "attraction", "monument", "museum", "park"],
+        'restaurant': ['restaurant', 'food', 'eat', 'dining', 'cafe', 'eatery', 'bistro'],
+        'gas_station': ['gas', 'petrol', 'fuel', 'gasoline', 'station'],
+        'hospital': ['hospital', 'medical', 'clinic', 'health', 'doctor', 'emergency'],
+        'school': ['school', 'education', 'university', 'college', 'academy'],
+        'bank': ['bank', 'atm', 'banking', 'financial'],
+        'pharmacy': ['pharmacy', 'drugstore', 'medicine', 'drugs'],
+        'grocery_store': ['grocery', 'supermarket', 'market', 'store'],
+        'tourist_attraction': ['tourist', 'attraction', 'monument', 'museum', 'park']
     }
-
+    
     @staticmethod
     def suggest_place_type(query: str) -> Optional[PlaceType]:
         """Suggest appropriate place type based on query content"""
         if not query:
             return None
-
+        
         query_lower = query.lower()
-
+        
         for place_type, keywords in QueryEnhancer.PLACE_TYPE_KEYWORDS.items():
             for keyword in keywords:
                 if keyword in query_lower:
@@ -465,166 +430,162 @@ class QueryEnhancer:
                         return PlaceType(place_type)
                     except ValueError:
                         continue
-
+        
         return None
-
+    
     @staticmethod
     def enhance_query(query: str, suggested_type: Optional[PlaceType] = None) -> str:
         """Enhance query for better search results"""
         if not query:
             return ""
-
+        
         # Basic query cleanup
         query = query.strip()
-
+        
         # Remove redundant words if place type is specified
         if suggested_type:
-            type_keywords = QueryEnhancer.PLACE_TYPE_KEYWORDS.get(
-                suggested_type.value, []
-            )
+            type_keywords = QueryEnhancer.PLACE_TYPE_KEYWORDS.get(suggested_type.value, [])
             query_words = query.lower().split()
-
+            
             # Remove type keywords from query to avoid redundancy
             filtered_words = [word for word in query_words if word not in type_keywords]
             if filtered_words:  # Only update if we have remaining words
-                query = " ".join(filtered_words)
-
+                query = ' '.join(filtered_words)
+        
         return query
-
+    
     @staticmethod
     def extract_travel_preferences(query: str) -> Dict[str, Any]:
         """Extract travel preferences from natural language"""
         preferences = {}
         query_lower = query.lower()
-
+        
         # Extract travel mode preferences
         mode_indicators = {
-            "driving": ["drive", "driving", "car", "vehicle"],
-            "walking": ["walk", "walking", "foot", "pedestrian"],
-            "transit": ["transit", "public", "bus", "train", "metro"],
-            "bicycling": ["bike", "bicycle", "cycling", "biking"],
+            'driving': ['drive', 'driving', 'car', 'vehicle'],
+            'walking': ['walk', 'walking', 'foot', 'pedestrian'],
+            'transit': ['transit', 'public', 'bus', 'train', 'metro'],
+            'bicycling': ['bike', 'bicycle', 'cycling', 'biking']
         }
-
+        
         for mode, indicators in mode_indicators.items():
             if any(indicator in query_lower for indicator in indicators):
-                preferences["preferred_mode"] = mode
+                preferences['preferred_mode'] = mode
                 break
-
+        
         # Extract urgency/speed preferences
-        if any(
-            word in query_lower for word in ["fast", "quick", "fastest", "shortest"]
-        ):
-            preferences["priority"] = "speed"
-        elif any(
-            word in query_lower for word in ["scenic", "beautiful", "avoid highway"]
-        ):
-            preferences["priority"] = "scenic"
-
+        if any(word in query_lower for word in ['fast', 'quick', 'fastest', 'shortest']):
+            preferences['priority'] = 'speed'
+        elif any(word in query_lower for word in ['scenic', 'beautiful', 'avoid highway']):
+            preferences['priority'] = 'scenic'
+        
         return preferences
 
 
 class NaturalLanguageProcessor:
     """Main class for processing natural language requests"""
-
+    
     @staticmethod
     def enhance_find_places_parameters(
-        location: str, query: str, type_hint: Optional[PlaceType] = None
+        location: str, 
+        query: str, 
+        type_hint: Optional[PlaceType] = None
     ) -> Dict[str, Any]:
         """
         Enhance find_places parameters based on natural language analysis
-
+        
         Returns enhanced parameters with suggestions
         """
         enhanced = {
-            "location": LocationParser.normalize_location(location),
-            "query": query,
-            "type": type_hint,
-            "enhancements": {},
+            'location': LocationParser.normalize_location(location),
+            'query': query,
+            'type': type_hint,
+            'enhancements': {}
         }
-
+        
         # Suggest place type if not provided
         if not type_hint:
             suggested_type = QueryEnhancer.suggest_place_type(query)
             if suggested_type:
-                enhanced["type"] = suggested_type
-                enhanced["enhancements"]["suggested_type"] = suggested_type.value
-
+                enhanced['type'] = suggested_type
+                enhanced['enhancements']['suggested_type'] = suggested_type.value
+        
         # Enhance query
-        enhanced["query"] = QueryEnhancer.enhance_query(query, enhanced["type"])
-
+        enhanced['query'] = QueryEnhancer.enhance_query(query, enhanced['type'])
+        
         # Extract coordinates if present
         coords = LocationParser.extract_coordinates(location)
         if coords:
-            enhanced["enhancements"]["coordinates"] = coords
-
+            enhanced['enhancements']['coordinates'] = coords
+        
         return enhanced
-
+    
     @staticmethod
     def enhance_directions_parameters(
-        origin: str, destination: str, mode_hint: Optional[TravelMode] = None
+        origin: str, 
+        destination: str, 
+        mode_hint: Optional[TravelMode] = None
     ) -> Dict[str, Any]:
         """
         Enhance get_directions parameters based on natural language analysis
-
+        
         Returns enhanced parameters with suggestions
         """
         enhanced = {
-            "origin": LocationParser.normalize_location(origin),
-            "destination": LocationParser.normalize_location(destination),
-            "mode": mode_hint or TravelMode.driving,
-            "enhancements": {},
+            'origin': LocationParser.normalize_location(origin),
+            'destination': LocationParser.normalize_location(destination),
+            'mode': mode_hint or TravelMode.driving,
+            'enhancements': {}
         }
-
+        
         # Extract travel preferences from the request context
         combined_text = f"{origin} {destination}"
         preferences = QueryEnhancer.extract_travel_preferences(combined_text)
-
-        if "preferred_mode" in preferences and not mode_hint:
+        
+        if 'preferred_mode' in preferences and not mode_hint:
             try:
-                enhanced["mode"] = TravelMode(preferences["preferred_mode"])
-                enhanced["enhancements"]["suggested_mode"] = preferences[
-                    "preferred_mode"
-                ]
+                enhanced['mode'] = TravelMode(preferences['preferred_mode'])
+                enhanced['enhancements']['suggested_mode'] = preferences['preferred_mode']
             except ValueError:
                 pass
-
-        if "priority" in preferences:
-            enhanced["enhancements"]["travel_priority"] = preferences["priority"]
-
+        
+        if 'priority' in preferences:
+            enhanced['enhancements']['travel_priority'] = preferences['priority']
+        
         return enhanced
 
 
 class Tools:
     """
     Google Maps Tool for finding places, getting directions, and retrieving place details.
-
+    
     This tool integrates with the OpenWebUI maps router endpoints to provide
     natural language access to Google Maps functionality. It follows OpenWebUI
     tool calling patterns and integrates seamlessly with the existing middleware.
-
+    
     The tool functions are automatically discovered by OpenWebUI's get_functions_from_tool()
     and converted to OpenAI function specifications via get_tool_specs().
     """
-
+    
     def __init__(self):
         # No longer need HTTP client setup since we're calling functions directly
         log.info("Maps tool initialized for direct function calls")
-
+    
     def _format_opening_hours_data(self, opening_hours_data):
         """Format opening hours data for consistent response structure.
-
+        
         Note: Private method with underscore prefix to avoid tool exposure.
         OpenWebUI's tool discovery mechanism should not expose private methods.
         """
         if not opening_hours_data:
             return None
-
+            
         return {
             "open_now": opening_hours_data.get("open_now"),
             "weekday_text": opening_hours_data.get("weekday_text", []),
-            "periods": opening_hours_data.get("periods", []),
+            "periods": opening_hours_data.get("periods", [])
         }
-
+    
     async def find_places(
         self,
         location: str,
@@ -632,16 +593,15 @@ class Tools:
         type: Optional[PlaceType] = None,
         radius: int = Field(default=5000, ge=100, le=50000),
         __user__: dict = {},
-        __id__: str = None,
-        __event_emitter__=None,
+        __id__: str = None
     ) -> Dict[str, Any]:
         """
         Find places of interest using natural language search queries.
-
+        
         This function helps users discover nearby places by searching for specific types of businesses,
         services, or points of interest. It's ideal for queries like "Find sushi restaurants near me",
         "Show gas stations within 2km", or "Where are the hospitals in Jakarta".
-
+        
         Args:
             location (str): The location to search around. Can be:
                 - Address: "123 Main Street, Jakarta"
@@ -657,14 +617,14 @@ class Tools:
             type (PlaceType, optional): Filter by specific place category:
                 - restaurant: Food establishments
                 - gas_station: Fuel stations
-                - hospital: Medical facilities
+                - hospital: Medical facilities  
                 - school: Educational institutions
                 - bank: Financial institutions
                 - pharmacy: Drug stores
                 - grocery_store: Supermarkets
                 - tourist_attraction: Points of interest
             radius (int): Search radius in meters (100-50000, default: 5000)
-
+            
         Returns:
             Dict with:
                 - places: List of found places with name, address, coordinates, rating
@@ -672,7 +632,7 @@ class Tools:
                 - message: Human-readable result description
                 - search_query: What was searched for
                 - search_location: Where the search was centered
-
+                
         Examples:
             - find_places("Jakarta", "sushi restaurants", type="restaurant")
             - find_places("Senayan", "gas stations", radius=2000)
@@ -681,92 +641,75 @@ class Tools:
         try:
             # Security and validation checks
             user_id = __user__.get("id") if __user__ else None
-
+            
             # Validate user permissions
             if not SecurityValidator.validate_user_permissions(__user__, "find_places"):
                 SecurityValidator.log_security_event(
-                    "PERMISSION_DENIED",
-                    user_id,
-                    "find_places",
-                    "User lacks required permissions",
+                    "PERMISSION_DENIED", user_id, "find_places", "User lacks required permissions"
                 )
                 error_response = MapsToolError.create_error_response(
-                    "find_places",
-                    "Access denied: insufficient permissions",
-                    "auth",
-                    user_id=user_id,
+                    "find_places", "Access denied: insufficient permissions", 
+                    "auth", user_id=user_id
                 )
                 error_response["places"] = []
                 return error_response
-
+            
             # Check rate limiting
             if not MapsUsageTracker.check_rate_limit(user_id, "find_places"):
                 error_response = MapsToolError.create_error_response(
-                    "find_places",
-                    "Rate limit exceeded: too many requests",
-                    "rate_limit",
-                    user_id=user_id,
+                    "find_places", "Rate limit exceeded: too many requests", 
+                    "rate_limit", user_id=user_id
                 )
                 error_response["places"] = []
                 return error_response
-
+            
             # Validate and sanitize input parameters
             if not LocationValidator.validate_location(location):
                 SecurityValidator.log_security_event(
-                    "INVALID_INPUT",
-                    user_id,
-                    "find_places",
-                    f"Invalid location: {location}",
+                    "INVALID_INPUT", user_id, "find_places", f"Invalid location: {location}"
                 )
                 error_response = MapsToolError.create_error_response(
-                    "find_places",
-                    "Invalid location format",
-                    "validation",
-                    user_id=user_id,
+                    "find_places", "Invalid location format", 
+                    "validation", user_id=user_id
                 )
                 error_response["places"] = []
                 return error_response
-
+            
             if not query or len(query.strip()) < 1 or len(query) > 200:
                 error_response = MapsToolError.create_error_response(
-                    "find_places",
-                    "Query must be between 1 and 200 characters",
-                    "validation",
-                    user_id=user_id,
+                    "find_places", "Query must be between 1 and 200 characters", 
+                    "validation", user_id=user_id
                 )
                 error_response["places"] = []
                 return error_response
-
+            
             # Sanitize inputs
             location = LocationValidator.sanitize_location(location)
-            query = LocationValidator.sanitize_location(
-                query
-            )  # Apply same sanitization
-
+            query = LocationValidator.sanitize_location(query)  # Apply same sanitization
+            
             # Apply natural language processing enhancements
             enhanced_params = NaturalLanguageProcessor.enhance_find_places_parameters(
                 location, query, type
             )
-
+            
             # Use enhanced parameters
-            location = enhanced_params["location"]
-            query = enhanced_params["query"]
-            if (
-                not type and enhanced_params["type"]
-            ):  # Use suggested type if none provided
-                type = enhanced_params["type"]
-
+            location = enhanced_params['location']
+            query = enhanced_params['query']
+            if not type and enhanced_params['type']:  # Use suggested type if none provided
+                type = enhanced_params['type']
+            
             # Call backend functions directly instead of making HTTP requests
             # This eliminates authentication forwarding issues
-
+            
             # Apply security validation and input sanitization (same as backend router)
             sanitized_input = validate_and_sanitize_maps_input(
-                location=location, query=query
+                location=location,
+                query=query
             )
-
+            
             # Get maps client and perform search with sanitized input
             maps_client = get_maps_client_sync()
-
+            
             # Handle async method call with proper event loop management
             try:
                 # Check if there's already an event loop running
@@ -774,48 +717,36 @@ class Tools:
                 # If there is, use run_in_executor to avoid "loop already running" error
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
-                        lambda: asyncio.run(
-                            maps_client.find_places(
-                                location=sanitized_input["location"],
-                                query=sanitized_input["query"],
-                                place_type=(
-                                    type.value if isinstance(type, PlaceType) else type
-                                ),
-                                radius=radius,
-                            )
-                        )
+                        lambda: asyncio.run(maps_client.find_places(
+                            location=sanitized_input['location'],
+                            query=sanitized_input['query'],
+                            place_type=type.value if isinstance(type, PlaceType) else type,
+                            radius=radius
+                        ))
                     )
                     places_data = future.result(timeout=30)
-
+                    
                     # 🔍 DEBUG: Log the complete Google Maps API response
-                    log.info(
-                        f"🔍 FULL Google Maps API Response: {json.dumps(places_data, indent=2, default=str)}"
-                    )
-
+                    log.info(f"🔍 FULL Google Maps API Response: {json.dumps(places_data, indent=2, default=str)}")
+                    
             except RuntimeError:
                 # No event loop running, we can create one
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    places_data = loop.run_until_complete(
-                        maps_client.find_places(
-                            location=sanitized_input["location"],
-                            query=sanitized_input["query"],
-                            place_type=(
-                                type.value if isinstance(type, PlaceType) else type
-                            ),
-                            radius=radius,
-                        )
-                    )
-
+                    places_data = loop.run_until_complete(maps_client.find_places(
+                        location=sanitized_input['location'],
+                        query=sanitized_input['query'],
+                        place_type=type.value if isinstance(type, PlaceType) else type,
+                        radius=radius
+                    ))
+                    
                     # 🔍 DEBUG: Log the complete Google Maps API response
-                    log.info(
-                        f"🔍 FULL Google Maps API Response: {json.dumps(places_data, indent=2, default=str)}"
-                    )
-
+                    log.info(f"🔍 FULL Google Maps API Response: {json.dumps(places_data, indent=2, default=str)}")
+                    
                 finally:
                     loop.close()
-
+            
             # Transform maps client response to expected format
             # Note: maps_client already returns cleaned data, so minimal transformation needed
             places = []
@@ -823,50 +754,47 @@ class Tools:
                 place_info = {
                     "name": place.get("name", ""),
                     "address": place.get("address", ""),  # ✅ Direct from maps_client
-                    "lat": place.get("lat", 0),  # ✅ Direct from maps_client
-                    "lng": place.get("lng", 0),  # ✅ Direct from maps_client
+                    "lat": place.get("lat", 0),           # ✅ Direct from maps_client  
+                    "lng": place.get("lng", 0),           # ✅ Direct from maps_client
                     "place_id": place.get("place_id", ""),
                     "rating": place.get("rating"),
-                    "open_now": place.get("open_now"),  # ✅ Direct from maps_client
+                    "open_now": place.get("open_now"),    # ✅ Direct from maps_client
                     "price_level": place.get("price_level"),
                     "types": place.get("types", []),
-                    "maps_url": place.get("maps_url", ""),  # ✅ Include maps URL
+                    "maps_url": place.get("maps_url", "")  # ✅ Include maps URL
                 }
                 places.append(place_info)
-
+            
             # Create enhanced success response for LLM consumption
             additional_info = {
                 "search_query": query,
                 "search_location": location,
-                "search_radius": f"{radius}m",
+                "search_radius": f"{radius}m"
             }
-
+            
             # Include natural language processing insights
-            if enhanced_params.get("enhancements"):
-                additional_info["nlp_enhancements"] = enhanced_params["enhancements"]
-
+            if enhanced_params.get('enhancements'):
+                additional_info['nlp_enhancements'] = enhanced_params['enhancements']
+            
             response = await MapsToolError.create_success_response(
                 function_name="find_places",
                 data={"places": places},
                 message=f"Found {len(places)} places matching your search for '{query}' near {location}",
-                additional_info=additional_info,
-                __event_emitter__=__event_emitter__,
+                additional_info=additional_info
             )
-
+            
             # 🔍 DEBUG: Log the complete tool response being sent to LLM
-            log.info(
-                f"🔍 FULL Tool Response to LLM: {json.dumps(response, indent=2, default=str)}"
-            )
-
+            log.info(f"🔍 FULL Tool Response to LLM: {json.dumps(response, indent=2, default=str)}")
+            
             return response
-
+                        
         except MapsClientError as e:
             # Maps API specific errors
             error_response = MapsToolError.create_error_response(
                 function_name="find_places",
                 error_message=str(e),
                 error_type="api",
-                user_id=__user__.get("id") if __user__ else None,
+                user_id=__user__.get("id") if __user__ else None
             )
             error_response["places"] = []
             return error_response
@@ -876,27 +804,26 @@ class Tools:
                 function_name="find_places",
                 error_message=str(e),
                 error_type="general",
-                user_id=__user__.get("id") if __user__ else None,
+                user_id=__user__.get("id") if __user__ else None
             )
             error_response["places"] = []
             return error_response
-
+    
     async def get_directions(
         self,
         origin: str,
         destination: str,
         mode: TravelMode = TravelMode.driving,
         __user__: dict = {},
-        __id__: str = None,
-        __event_emitter__=None,
+        __id__: str = None
     ) -> Dict[str, Any]:
         """
         Get turn-by-turn directions and route information between two locations.
-
-        This function provides detailed navigation instructions for traveling from one location
+        
+        This function provides detailed navigation instructions for traveling from one location 
         to another. It's perfect for queries like "How do I get from Jakarta to Bandung?",
         "Show me walking directions to the nearest hospital", or "What's the best route by car?"
-
+        
         Args:
             origin (str): Starting point for the journey. Can be:
                 - Full address: "Jalan Sudirman 123, Jakarta Pusat"
@@ -912,7 +839,7 @@ class Tools:
                 - walking: On foot - pedestrian paths, shorter distances
                 - transit: Public transport - buses, trains, metro
                 - bicycling: By bicycle - bike-friendly routes
-
+                
         Returns:
             Dict with:
                 - route: Detailed route information including:
@@ -924,7 +851,7 @@ class Tools:
                 - message: Human-readable result description
                 - travel_mode: The mode of transportation used
                 - summary: Quick overview with distance and duration
-
+                
         Examples:
             - get_directions("Jakarta", "Bandung", mode="driving")
             - get_directions("Senayan City", "Monas", mode="walking")
@@ -933,97 +860,78 @@ class Tools:
         try:
             # Security and validation checks
             user_id = __user__.get("id") if __user__ else None
-
+            
             # Validate user permissions
-            if not SecurityValidator.validate_user_permissions(
-                __user__, "get_directions"
-            ):
+            if not SecurityValidator.validate_user_permissions(__user__, "get_directions"):
                 SecurityValidator.log_security_event(
-                    "PERMISSION_DENIED",
-                    user_id,
-                    "get_directions",
-                    "User lacks required permissions",
+                    "PERMISSION_DENIED", user_id, "get_directions", "User lacks required permissions"
                 )
                 error_response = MapsToolError.create_error_response(
-                    "get_directions",
-                    "Access denied: insufficient permissions",
-                    "auth",
-                    user_id=user_id,
+                    "get_directions", "Access denied: insufficient permissions", 
+                    "auth", user_id=user_id
                 )
                 error_response["route"] = {}
                 return error_response
-
+            
             # Check rate limiting
             if not MapsUsageTracker.check_rate_limit(user_id, "get_directions"):
                 error_response = MapsToolError.create_error_response(
-                    "get_directions",
-                    "Rate limit exceeded: too many requests",
-                    "rate_limit",
-                    user_id=user_id,
+                    "get_directions", "Rate limit exceeded: too many requests", 
+                    "rate_limit", user_id=user_id
                 )
                 error_response["route"] = {}
                 return error_response
-
+            
             # Validate and sanitize input parameters
             if not LocationValidator.validate_location(origin):
                 SecurityValidator.log_security_event(
-                    "INVALID_INPUT",
-                    user_id,
-                    "get_directions",
-                    f"Invalid origin: {origin}",
+                    "INVALID_INPUT", user_id, "get_directions", f"Invalid origin: {origin}"
                 )
                 error_response = MapsToolError.create_error_response(
-                    "get_directions",
-                    "Invalid origin location format",
-                    "validation",
-                    user_id=user_id,
+                    "get_directions", "Invalid origin location format", 
+                    "validation", user_id=user_id
                 )
                 error_response["route"] = {}
                 return error_response
-
+            
             if not LocationValidator.validate_location(destination):
                 SecurityValidator.log_security_event(
-                    "INVALID_INPUT",
-                    user_id,
-                    "get_directions",
-                    f"Invalid destination: {destination}",
+                    "INVALID_INPUT", user_id, "get_directions", f"Invalid destination: {destination}"
                 )
                 error_response = MapsToolError.create_error_response(
-                    "get_directions",
-                    "Invalid destination location format",
-                    "validation",
-                    user_id=user_id,
+                    "get_directions", "Invalid destination location format", 
+                    "validation", user_id=user_id
                 )
                 error_response["route"] = {}
                 return error_response
-
+            
             # Sanitize inputs
             origin = LocationValidator.sanitize_location(origin)
             destination = LocationValidator.sanitize_location(destination)
-
+            
             # Apply natural language processing enhancements
             enhanced_params = NaturalLanguageProcessor.enhance_directions_parameters(
                 origin, destination, mode
             )
-
+            
             # Use enhanced parameters
-            origin = enhanced_params["origin"]
-            destination = enhanced_params["destination"]
-            if enhanced_params["mode"] != mode:  # Use suggested mode if different
-                mode = enhanced_params["mode"]
-
+            origin = enhanced_params['origin']
+            destination = enhanced_params['destination']
+            if enhanced_params['mode'] != mode:  # Use suggested mode if different
+                mode = enhanced_params['mode']
+            
             # Call backend functions directly instead of making HTTP requests
             # This eliminates authentication forwarding issues
-
+            
             # Apply security validation and input sanitization (same as backend router)
             sanitized_input = validate_and_sanitize_maps_input(
                 location=origin,  # Use origin as location for validation
-                query=destination,  # Use destination as query for validation
+                query=destination  # Use destination as query for validation
             )
-
+            
             # Get maps client and get directions with sanitized input
             maps_client = get_maps_client_sync()
-
+            
             # Handle async method call with proper event loop management
             try:
                 # Check if there's already an event loop running
@@ -1031,100 +939,83 @@ class Tools:
                 # If there is, use run_in_executor to avoid "loop already running" error
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
-                        lambda: asyncio.run(
-                            maps_client.get_directions(
-                                origin=sanitized_input["location"],  # origin
-                                destination=sanitized_input["query"],  # destination
-                                mode=(
-                                    mode.value if isinstance(mode, TravelMode) else mode
-                                ),
-                            )
-                        )
+                        lambda: asyncio.run(maps_client.get_directions(
+                            origin=sanitized_input['location'],  # origin
+                            destination=sanitized_input['query'],  # destination
+                            mode=mode.value if isinstance(mode, TravelMode) else mode
+                        ))
                     )
                     route_data = future.result(timeout=30)
-
+                    
                     # 🔍 DEBUG: Log the complete Google Maps API response
-                    log.info(
-                        f"🔍 FULL Google Maps API Response (directions): {json.dumps(route_data, indent=2, default=str)}"
-                    )
-
+                    log.info(f"🔍 FULL Google Maps API Response (directions): {json.dumps(route_data, indent=2, default=str)}")
+                    
             except RuntimeError:
                 # No event loop running, we can create one
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    route_data = loop.run_until_complete(
-                        maps_client.get_directions(
-                            origin=sanitized_input["location"],  # origin
-                            destination=sanitized_input["query"],  # destination
-                            mode=mode.value if isinstance(mode, TravelMode) else mode,
-                        )
-                    )
-
+                    route_data = loop.run_until_complete(maps_client.get_directions(
+                        origin=sanitized_input['location'],  # origin
+                        destination=sanitized_input['query'],  # destination
+                        mode=mode.value if isinstance(mode, TravelMode) else mode
+                    ))
+                    
                     # 🔍 DEBUG: Log the complete Google Maps API response
-                    log.info(
-                        f"🔍 FULL Google Maps API Response (directions): {json.dumps(route_data, indent=2, default=str)}"
-                    )
-
+                    log.info(f"🔍 FULL Google Maps API Response (directions): {json.dumps(route_data, indent=2, default=str)}")
+                    
                 finally:
                     loop.close()
-
+            
             # Transform maps client response to expected format
             # Note: maps_client already returns cleaned data, so minimal transformation needed
             route = {}
             if route_data:
                 # maps_client returns simplified format: {steps, distance, duration, maps_url}
                 route = {
-                    "distance": route_data.get(
-                        "distance", "Unknown"
-                    ),  # ✅ Direct from maps_client
-                    "duration": route_data.get(
-                        "duration", "Unknown"
-                    ),  # ✅ Direct from maps_client
-                    "start_address": origin,  # Use provided origin
-                    "end_address": destination,  # Use provided destination
-                    "steps": route_data.get("steps", []),  # ✅ Direct from maps_client
-                    "overview_polyline": "",  # Not provided by current maps_client
-                    "maps_url": route_data.get("maps_url", ""),  # ✅ Include maps URL
+                    "distance": route_data.get("distance", "Unknown"),           # ✅ Direct from maps_client
+                    "duration": route_data.get("duration", "Unknown"),           # ✅ Direct from maps_client
+                    "start_address": origin,                                     # Use provided origin
+                    "end_address": destination,                                  # Use provided destination  
+                    "steps": route_data.get("steps", []),                       # ✅ Direct from maps_client
+                    "overview_polyline": "",                                     # Not provided by current maps_client
+                    "maps_url": route_data.get("maps_url", "")                  # ✅ Include maps URL
                 }
-
+            
             # Create enhanced success response for LLM consumption
             additional_info = {
-                "travel_mode": mode.value if hasattr(mode, "value") else mode,
+                "travel_mode": mode.value if hasattr(mode, 'value') else mode,
                 "origin": origin,
                 "destination": destination,
                 "summary": {
                     "distance": route.get("distance", "Unknown"),
-                    "duration": route.get("duration", "Unknown"),
-                },
+                    "duration": route.get("duration", "Unknown")
+                }
             }
-
+            
             # Include natural language processing insights
-            if enhanced_params.get("enhancements"):
-                additional_info["nlp_enhancements"] = enhanced_params["enhancements"]
-
+            if enhanced_params.get('enhancements'):
+                additional_info['nlp_enhancements'] = enhanced_params['enhancements']
+            
             response = await MapsToolError.create_success_response(
                 function_name="get_directions",
                 data={"route": route},
                 message=f"Route from {origin} to {destination} found via {mode.value if hasattr(mode, 'value') else mode}",
-                additional_info=additional_info,
-                __event_emitter__=__event_emitter__,
+                additional_info=additional_info
             )
-
+            
             # 🔍 DEBUG: Log the complete tool response being sent to LLM
-            log.info(
-                f"🔍 FULL Tool Response to LLM (get_directions): {json.dumps(response, indent=2, default=str)}"
-            )
-
+            log.info(f"🔍 FULL Tool Response to LLM (get_directions): {json.dumps(response, indent=2, default=str)}")
+            
             return response
-
+                        
         except MapsClientError as e:
             # Maps API specific errors
             error_response = MapsToolError.create_error_response(
                 function_name="get_directions",
                 error_message=str(e),
                 error_type="api",
-                user_id=__user__.get("id") if __user__ else None,
+                user_id=__user__.get("id") if __user__ else None
             )
             error_response["route"] = {}
             return error_response
@@ -1134,26 +1025,25 @@ class Tools:
                 function_name="get_directions",
                 error_message=str(e),
                 error_type="general",
-                user_id=__user__.get("id") if __user__ else None,
+                user_id=__user__.get("id") if __user__ else None
             )
             error_response["route"] = {}
             return error_response
-
+    
     async def place_details(
         self,
         place_id: str,
         __user__: dict = {},
-        __id__: str = None,
-        __event_emitter__=None,
+        __id__: str = None
     ) -> Dict[str, Any]:
         """
         Get comprehensive information about a specific place using its Google Places ID.
-
+        
         This function retrieves detailed information about a business or location, including
-        contact details, operating hours, reviews, photos, and more. It's useful for
+        contact details, operating hours, reviews, photos, and more. It's useful for 
         follow-up queries like "Tell me more about this restaurant" or "What are the hours
         for this hospital?"
-
+        
         Args:
             place_id (str): The unique Google Places identifier for the location.
                 This is typically obtained from a previous find_places search result.
@@ -1161,7 +1051,7 @@ class Tools:
                 Examples:
                 - "ChIJN1t_tDeuEmsRUsoyG83frY4" (Google Sydney office)
                 - "ChIJrTLr-GyuEmsRBfy61i59si0" (Opera House)
-
+                
         Returns:
             Dict with:
                 - details: Comprehensive place information including:
@@ -1177,11 +1067,11 @@ class Tools:
                 - status: "success" or "error"
                 - message: Human-readable result description
                 - place_name: Quick reference to the place name
-
+                
         Examples:
             - place_details("ChIJN1t_tDeuEmsRUsoyG83frY4")
             - Used after: find_places("Jakarta", "restaurants") → get place_id → place_details(place_id)
-
+            
         Note:
             The place_id parameter is usually obtained from the results of a find_places call.
             Each place in the search results includes its unique place_id.
@@ -1189,60 +1079,46 @@ class Tools:
         try:
             # Security and validation checks
             user_id = __user__.get("id") if __user__ else None
-
+            
             # Validate user permissions
-            if not SecurityValidator.validate_user_permissions(
-                __user__, "place_details"
-            ):
+            if not SecurityValidator.validate_user_permissions(__user__, "place_details"):
                 SecurityValidator.log_security_event(
-                    "PERMISSION_DENIED",
-                    user_id,
-                    "place_details",
-                    "User lacks required permissions",
+                    "PERMISSION_DENIED", user_id, "place_details", "User lacks required permissions"
                 )
                 error_response = MapsToolError.create_error_response(
-                    "place_details",
-                    "Access denied: insufficient permissions",
-                    "auth",
-                    user_id=user_id,
+                    "place_details", "Access denied: insufficient permissions", 
+                    "auth", user_id=user_id
                 )
                 error_response["details"] = {}
                 return error_response
-
+            
             # Check rate limiting
             if not MapsUsageTracker.check_rate_limit(user_id, "place_details"):
                 error_response = MapsToolError.create_error_response(
-                    "place_details",
-                    "Rate limit exceeded: too many requests",
-                    "rate_limit",
-                    user_id=user_id,
+                    "place_details", "Rate limit exceeded: too many requests", 
+                    "rate_limit", user_id=user_id
                 )
                 error_response["details"] = {}
                 return error_response
-
+            
             # Validate place_id format
             if not LocationValidator.validate_place_id(place_id):
                 SecurityValidator.log_security_event(
-                    "INVALID_INPUT",
-                    user_id,
-                    "place_details",
-                    f"Invalid place_id: {place_id}",
+                    "INVALID_INPUT", user_id, "place_details", f"Invalid place_id: {place_id}"
                 )
                 error_response = MapsToolError.create_error_response(
-                    "place_details",
-                    "Invalid place ID format",
-                    "validation",
-                    user_id=user_id,
+                    "place_details", "Invalid place ID format", 
+                    "validation", user_id=user_id
                 )
                 error_response["details"] = {}
                 return error_response
-
+            
             # Call backend functions directly instead of making HTTP requests
             # This eliminates authentication forwarding issues
-
+            
             # Get maps client and get place details
             maps_client = get_maps_client_sync()
-
+            
             # Handle async method call with proper event loop management
             try:
                 # Check if there's already an event loop running
@@ -1250,71 +1126,49 @@ class Tools:
                 # If there is, use run_in_executor to avoid "loop already running" error
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(
-                        lambda: asyncio.run(
-                            maps_client.get_place_details(place_id=place_id)
-                        )
+                        lambda: asyncio.run(maps_client.get_place_details(place_id=place_id))
                     )
                     place_data = future.result(timeout=30)
-
+                    
                     # 🔍 DEBUG: Log the complete Google Maps API response
-                    log.info(
-                        f"🔍 FULL Google Maps API Response (place_details): {json.dumps(place_data, indent=2, default=str)}"
-                    )
-
+                    log.info(f"🔍 FULL Google Maps API Response (place_details): {json.dumps(place_data, indent=2, default=str)}")
+                    
             except RuntimeError:
                 # No event loop running, we can create one
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    place_data = loop.run_until_complete(
-                        maps_client.get_place_details(place_id=place_id)
-                    )
-
+                    place_data = loop.run_until_complete(maps_client.get_place_details(place_id=place_id))
+                    
                     # 🔍 DEBUG: Log the complete Google Maps API response
-                    log.info(
-                        f"🔍 FULL Google Maps API Response (place_details): {json.dumps(place_data, indent=2, default=str)}"
-                    )
-
+                    log.info(f"🔍 FULL Google Maps API Response (place_details): {json.dumps(place_data, indent=2, default=str)}")
+                    
                 finally:
                     loop.close()
-
-            # Transform maps client response to expected format
+            
+            # Transform maps client response to expected format  
             # Note: maps_client returns {details: {...}, reviews: [...], photos: [...], maps_url: "..."}
             details = {}
             if place_data:
                 # Extract details from maps_client response structure
                 place_details = place_data.get("details", {})
                 details = {
-                    "name": place_details.get("name", ""),  # ✅ From details object
-                    "address": place_details.get(
-                        "address", ""
-                    ),  # ✅ From details object
-                    "phone": place_details.get("phone", ""),  # ✅ From details object
-                    "website": place_details.get(
-                        "website", ""
-                    ),  # ✅ From details object
-                    "rating": place_details.get("rating"),  # ✅ From details object
-                    "user_ratings_total": place_details.get(
-                        "rating_count", 0
-                    ),  # ✅ From details object
-                    "price_level": place_details.get(
-                        "price_level"
-                    ),  # ✅ From details object
-                    "hours": place_details.get(
-                        "opening_hours", {}
-                    ),  # ✅ From details object
-                    "types": place_details.get("types", []),  # ✅ From details object
-                    "photos": place_data.get(
-                        "photos", []
-                    ),  # ✅ Direct from maps_client
-                    "reviews": place_data.get(
-                        "reviews", []
-                    ),  # ✅ Direct from maps_client
-                    "maps_url": place_data.get("maps_url", ""),  # ✅ Include maps URL
+                    "name": place_details.get("name", ""),                        # ✅ From details object
+                    "address": place_details.get("address", ""),                  # ✅ From details object  
+                    "phone": place_details.get("phone", ""),                      # ✅ From details object
+                    "website": place_details.get("website", ""),                  # ✅ From details object
+                    "rating": place_details.get("rating"),                        # ✅ From details object
+                    "user_ratings_total": place_details.get("rating_count", 0),   # ✅ From details object
+                    "price_level": place_details.get("price_level"),              # ✅ From details object
+                    "hours": place_details.get("opening_hours", {}),              # ✅ From details object  
+                    "types": place_details.get("types", []),                      # ✅ From details object
+                    "photos": place_data.get("photos", []),                       # ✅ Direct from maps_client
+                    "reviews": place_data.get("reviews", []),                     # ✅ Direct from maps_client
+                    "maps_url": place_data.get("maps_url", "")                    # ✅ Include maps URL
                 }
-
+            
             place_name = details.get("name", "Unknown Place")
-
+            
             # Create enhanced success response for LLM consumption
             response = await MapsToolError.create_success_response(
                 function_name="place_details",
@@ -1325,27 +1179,22 @@ class Tools:
                     "place_name": place_name,
                     "has_rating": "rating" in details and details["rating"] is not None,
                     "has_hours": "hours" in details and details["hours"] is not None,
-                    "has_contact": any(
-                        details.get(key) for key in ["phone", "website"]
-                    ),
-                },
-                __event_emitter__=__event_emitter__,
+                    "has_contact": any(details.get(key) for key in ["phone", "website"])
+                }
             )
-
+            
             # 🔍 DEBUG: Log the complete tool response being sent to LLM
-            log.info(
-                f"🔍 FULL Tool Response to LLM (place_details): {json.dumps(response, indent=2, default=str)}"
-            )
-
+            log.info(f"🔍 FULL Tool Response to LLM (place_details): {json.dumps(response, indent=2, default=str)}")
+            
             return response
-
+                        
         except MapsClientError as e:
             # Maps API specific errors
             error_response = MapsToolError.create_error_response(
                 function_name="place_details",
                 error_message=str(e),
                 error_type="api",
-                user_id=__user__.get("id") if __user__ else None,
+                user_id=__user__.get("id") if __user__ else None
             )
             error_response["details"] = {}
             return error_response
@@ -1355,7 +1204,7 @@ class Tools:
                 function_name="place_details",
                 error_message=str(e),
                 error_type="general",
-                user_id=__user__.get("id") if __user__ else None,
+                user_id=__user__.get("id") if __user__ else None
             )
             error_response["details"] = {}
-            return error_response
+            return error_response 
