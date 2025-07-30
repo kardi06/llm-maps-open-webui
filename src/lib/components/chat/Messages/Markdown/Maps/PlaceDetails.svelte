@@ -2,6 +2,7 @@
 	import { getContext } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import type { i18n as i18nType } from 'i18next';
+	import { formatRating, getFullRatingStars } from '$lib/utils/maps';
 
 	const i18n = getContext<Writable<i18nType>>('i18n');
 
@@ -45,20 +46,8 @@
 		window.open(url, '_blank', 'noopener,noreferrer');
 	};
 
-	const formatRating = (rating: number): string => {
-		return rating.toFixed(1);
-	};
-
 	const getRatingStars = (rating: number): string => {
-		const fullStars = Math.floor(rating);
-		const hasHalfStar = rating % 1 >= 0.5;
-		let stars = '★'.repeat(fullStars);
-		if (hasHalfStar && fullStars < 5) {
-			stars += '☆';
-		}
-		const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
-		stars += '☆'.repeat(emptyStars);
-		return stars;
+		return getFullRatingStars(rating);
 	};
 
 	const getPriceLevelText = (level: number): string => {

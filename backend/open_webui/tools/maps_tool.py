@@ -1,10 +1,10 @@
 """
 title: Google Maps Tool
 description: Find places, get directions, and retrieve place details using natural language queries
-version: 1.0.0
+version: 1.0.1
 required_open_webui_version: 0.4.0
 license: MIT
-requirements: aiohttp
+requirements: pydantic
 """
 
 import logging
@@ -12,13 +12,15 @@ import os
 import json
 import uuid
 import time
+import concurrent.futures
 from typing import Dict, Any, Optional
 from enum import Enum
 from pydantic import BaseModel, Field, validator
 
 # Import backend utilities directly instead of making HTTP requests
-from open_webui.utils.maps_client import get_maps_client, MapsClientError
+from open_webui.utils.maps_client import get_maps_client_sync, MapsClientError
 from open_webui.utils.maps_security import validate_and_sanitize_maps_input
+import asyncio
 
 log = logging.getLogger(__name__)
 
@@ -567,11 +569,11 @@ class Tools:
         # No longer need HTTP client setup since we're calling functions directly
         log.info("Maps tool initialized for direct function calls")
     
-    def format_opening_hours_data(self, opening_hours_data):
+    def _format_opening_hours_data(self, opening_hours_data):
         """Format opening hours data for consistent response structure.
         
-        Note: Renamed from _format_opening_hours to avoid tool exposure.
-        Private methods starting with underscore can be incorrectly exposed as tools.
+        Note: Private method with underscore prefix to avoid tool exposure.
+        OpenWebUI's tool discovery mechanism should not expose private methods.
         """
         if not opening_hours_data:
             return None
@@ -582,7 +584,7 @@ class Tools:
             "periods": opening_hours_data.get("periods", [])
         }
     
-    async def find_places(
+    def find_places(
         self,
         location: str,
         query: str,
@@ -704,27 +706,60 @@ class Tools:
             )
             
             # Get maps client and perform search with sanitized input
-            maps_client = get_maps_client()
-            places_data = maps_client.find_places(
-                location=sanitized_input['location'],
-                query=sanitized_input['query'],
-                place_type=type.value if isinstance(type, PlaceType) else type,
-                radius=radius
-            )
+            maps_client = get_maps_client_sync()
+            
+            # Handle async method call with proper event loop management
+            try:
+                # Check if there's already an event loop running
+                loop = asyncio.get_running_loop()
+                # If there is, use run_in_executor to avoid "loop already running" error
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        lambda: asyncio.run(maps_client.find_places(
+                            location=sanitized_input['location'],
+                            query=sanitized_input['query'],
+                            place_type=type.value if isinstance(type, PlaceType) else type,
+                            radius=radius
+                        ))
+                    )
+                    places_data = future.result(timeout=30)
+                    
+                    # 🔍 DEBUG: Log the complete Google Maps API response
+                    log.info(f"🔍 FULL Google Maps API Response: {json.dumps(places_data, indent=2, default=str)}")
+                    
+            except RuntimeError:
+                # No event loop running, we can create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    places_data = loop.run_until_complete(maps_client.find_places(
+                        location=sanitized_input['location'],
+                        query=sanitized_input['query'],
+                        place_type=type.value if isinstance(type, PlaceType) else type,
+                        radius=radius
+                    ))
+                    
+                    # 🔍 DEBUG: Log the complete Google Maps API response
+                    log.info(f"🔍 FULL Google Maps API Response: {json.dumps(places_data, indent=2, default=str)}")
+                    
+                finally:
+                    loop.close()
             
             # Transform maps client response to expected format
+            # Note: maps_client already returns cleaned data, so minimal transformation needed
             places = []
             for place in places_data:
                 place_info = {
                     "name": place.get("name", ""),
-                    "address": place.get("vicinity", place.get("formatted_address", "")),
-                    "lat": place.get("geometry", {}).get("location", {}).get("lat", 0),
-                    "lng": place.get("geometry", {}).get("location", {}).get("lng", 0),
+                    "address": place.get("address", ""),  # ✅ Direct from maps_client
+                    "lat": place.get("lat", 0),           # ✅ Direct from maps_client  
+                    "lng": place.get("lng", 0),           # ✅ Direct from maps_client
                     "place_id": place.get("place_id", ""),
                     "rating": place.get("rating"),
-                    "open_now": place.get("opening_hours", {}).get("open_now"),
+                    "open_now": place.get("open_now"),    # ✅ Direct from maps_client
                     "price_level": place.get("price_level"),
-                    "types": place.get("types", [])
+                    "types": place.get("types", []),
+                    "maps_url": place.get("maps_url", "")  # ✅ Include maps URL
                 }
                 places.append(place_info)
             
@@ -739,12 +774,17 @@ class Tools:
             if enhanced_params.get('enhancements'):
                 additional_info['nlp_enhancements'] = enhanced_params['enhancements']
             
-            return MapsToolError.create_success_response(
+            response = MapsToolError.create_success_response(
                 function_name="find_places",
                 data={"places": places},
                 message=f"Found {len(places)} places matching your search for '{query}' near {location}",
                 additional_info=additional_info
             )
+            
+            # 🔍 DEBUG: Log the complete tool response being sent to LLM
+            log.info(f"🔍 FULL Tool Response to LLM: {json.dumps(response, indent=2, default=str)}")
+            
+            return response
                         
         except MapsClientError as e:
             # Maps API specific errors
@@ -767,7 +807,7 @@ class Tools:
             error_response["places"] = []
             return error_response
     
-    async def get_directions(
+    def get_directions(
         self,
         origin: str,
         destination: str,
@@ -888,36 +928,57 @@ class Tools:
             )
             
             # Get maps client and get directions with sanitized input
-            maps_client = get_maps_client()
-            route_data = maps_client.get_directions(
-                origin=sanitized_input['location'],  # origin
-                destination=sanitized_input['query'],  # destination
-                mode=mode.value if isinstance(mode, TravelMode) else mode
-            )
+            maps_client = get_maps_client_sync()
+            
+            # Handle async method call with proper event loop management
+            try:
+                # Check if there's already an event loop running
+                loop = asyncio.get_running_loop()
+                # If there is, use run_in_executor to avoid "loop already running" error
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        lambda: asyncio.run(maps_client.get_directions(
+                            origin=sanitized_input['location'],  # origin
+                            destination=sanitized_input['query'],  # destination
+                            mode=mode.value if isinstance(mode, TravelMode) else mode
+                        ))
+                    )
+                    route_data = future.result(timeout=30)
+                    
+                    # 🔍 DEBUG: Log the complete Google Maps API response
+                    log.info(f"🔍 FULL Google Maps API Response (directions): {json.dumps(route_data, indent=2, default=str)}")
+                    
+            except RuntimeError:
+                # No event loop running, we can create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    route_data = loop.run_until_complete(maps_client.get_directions(
+                        origin=sanitized_input['location'],  # origin
+                        destination=sanitized_input['query'],  # destination
+                        mode=mode.value if isinstance(mode, TravelMode) else mode
+                    ))
+                    
+                    # 🔍 DEBUG: Log the complete Google Maps API response
+                    log.info(f"🔍 FULL Google Maps API Response (directions): {json.dumps(route_data, indent=2, default=str)}")
+                    
+                finally:
+                    loop.close()
             
             # Transform maps client response to expected format
+            # Note: maps_client already returns cleaned data, so minimal transformation needed
             route = {}
-            if route_data and len(route_data) > 0:
-                route_info = route_data[0]  # Take first route
-                legs = route_info.get("legs", [])
-                if legs:
-                    leg = legs[0]  # Take first leg
-                    route = {
-                        "distance": leg.get("distance", {}).get("text", "Unknown"),
-                        "duration": leg.get("duration", {}).get("text", "Unknown"),
-                        "start_address": leg.get("start_address", origin),
-                        "end_address": leg.get("end_address", destination),
-                        "steps": [
-                            {
-                                "instruction": step.get("html_instructions", ""),
-                                "distance": step.get("distance", {}).get("text", ""),
-                                "duration": step.get("duration", {}).get("text", ""),
-                                "maneuver": step.get("maneuver", "")
-                            }
-                            for step in leg.get("steps", [])
-                        ],
-                        "overview_polyline": route_info.get("overview_polyline", {}).get("points", "")
-                    }
+            if route_data:
+                # maps_client returns simplified format: {steps, distance, duration, maps_url}
+                route = {
+                    "distance": route_data.get("distance", "Unknown"),           # ✅ Direct from maps_client
+                    "duration": route_data.get("duration", "Unknown"),           # ✅ Direct from maps_client
+                    "start_address": origin,                                     # Use provided origin
+                    "end_address": destination,                                  # Use provided destination  
+                    "steps": route_data.get("steps", []),                       # ✅ Direct from maps_client
+                    "overview_polyline": "",                                     # Not provided by current maps_client
+                    "maps_url": route_data.get("maps_url", "")                  # ✅ Include maps URL
+                }
             
             # Create enhanced success response for LLM consumption
             additional_info = {
@@ -934,12 +995,17 @@ class Tools:
             if enhanced_params.get('enhancements'):
                 additional_info['nlp_enhancements'] = enhanced_params['enhancements']
             
-            return MapsToolError.create_success_response(
+            response = MapsToolError.create_success_response(
                 function_name="get_directions",
                 data={"route": route},
                 message=f"Route from {origin} to {destination} found via {mode.value if hasattr(mode, 'value') else mode}",
                 additional_info=additional_info
             )
+            
+            # 🔍 DEBUG: Log the complete tool response being sent to LLM
+            log.info(f"🔍 FULL Tool Response to LLM (get_directions): {json.dumps(response, indent=2, default=str)}")
+            
+            return response
                         
         except MapsClientError as e:
             # Maps API specific errors
@@ -962,7 +1028,7 @@ class Tools:
             error_response["route"] = {}
             return error_response
     
-    async def place_details(
+    def place_details(
         self,
         place_id: str,
         __user__: dict = {},
@@ -1049,43 +1115,60 @@ class Tools:
             # This eliminates authentication forwarding issues
             
             # Get maps client and get place details
-            maps_client = get_maps_client()
-            place_data = maps_client.get_place_details(place_id=place_id)
+            maps_client = get_maps_client_sync()
             
-            # Transform maps client response to expected format
+            # Handle async method call with proper event loop management
+            try:
+                # Check if there's already an event loop running
+                loop = asyncio.get_running_loop()
+                # If there is, use run_in_executor to avoid "loop already running" error
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        lambda: asyncio.run(maps_client.get_place_details(place_id=place_id))
+                    )
+                    place_data = future.result(timeout=30)
+                    
+                    # 🔍 DEBUG: Log the complete Google Maps API response
+                    log.info(f"🔍 FULL Google Maps API Response (place_details): {json.dumps(place_data, indent=2, default=str)}")
+                    
+            except RuntimeError:
+                # No event loop running, we can create one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    place_data = loop.run_until_complete(maps_client.get_place_details(place_id=place_id))
+                    
+                    # 🔍 DEBUG: Log the complete Google Maps API response
+                    log.info(f"🔍 FULL Google Maps API Response (place_details): {json.dumps(place_data, indent=2, default=str)}")
+                    
+                finally:
+                    loop.close()
+            
+            # Transform maps client response to expected format  
+            # Note: maps_client returns {details: {...}, reviews: [...], photos: [...], maps_url: "..."}
             details = {}
             if place_data:
+                # Extract details from maps_client response structure
+                place_details = place_data.get("details", {})
                 details = {
-                    "name": place_data.get("name", ""),
-                    "address": place_data.get("formatted_address", ""),
-                    "phone": place_data.get("formatted_phone_number", place_data.get("international_phone_number")),
-                    "website": place_data.get("website"),
-                    "rating": place_data.get("rating"),
-                    "user_ratings_total": place_data.get("user_ratings_total"),
-                    "price_level": place_data.get("price_level"),
-                    "hours": self.format_opening_hours_data(place_data.get("opening_hours")),
-                    "types": place_data.get("types", []),
-                    "geometry": place_data.get("geometry", {}),
-                    "photos": [
-                        maps_client.get_photo_url(photo.get("photo_reference"))
-                        for photo in place_data.get("photos", [])[:3]  # Limit to 3 photos
-                        if photo.get("photo_reference")
-                    ],
-                    "reviews": [
-                        {
-                            "author_name": review.get("author_name"),
-                            "rating": review.get("rating"),
-                            "text": review.get("text"),
-                            "time": review.get("time")
-                        }
-                        for review in place_data.get("reviews", [])[:3]  # Limit to 3 reviews
-                    ]
+                    "name": place_details.get("name", ""),                        # ✅ From details object
+                    "address": place_details.get("address", ""),                  # ✅ From details object  
+                    "phone": place_details.get("phone", ""),                      # ✅ From details object
+                    "website": place_details.get("website", ""),                  # ✅ From details object
+                    "rating": place_details.get("rating"),                        # ✅ From details object
+                    "user_ratings_total": place_details.get("rating_count", 0),   # ✅ From details object
+                    "price_level": place_details.get("price_level"),              # ✅ From details object
+                    "hours": place_details.get("opening_hours", {}),              # ✅ From details object  
+                    "types": place_details.get("types", []),                      # ✅ From details object
+                    "photos": place_data.get("photos", []),                       # ✅ Direct from maps_client
+                    "reviews": place_data.get("reviews", []),                     # ✅ Direct from maps_client
+                    "maps_url": place_data.get("maps_url", "")                    # ✅ Include maps URL
                 }
             
             place_name = details.get("name", "Unknown Place")
             
             # Create enhanced success response for LLM consumption
-            return MapsToolError.create_success_response(
+            response = MapsToolError.create_success_response(
                 function_name="place_details",
                 data={"details": details},
                 message=f"Retrieved detailed information for {place_name}",
@@ -1097,6 +1180,11 @@ class Tools:
                     "has_contact": any(details.get(key) for key in ["phone", "website"])
                 }
             )
+            
+            # 🔍 DEBUG: Log the complete tool response being sent to LLM
+            log.info(f"🔍 FULL Tool Response to LLM (place_details): {json.dumps(response, indent=2, default=str)}")
+            
+            return response
                         
         except MapsClientError as e:
             # Maps API specific errors

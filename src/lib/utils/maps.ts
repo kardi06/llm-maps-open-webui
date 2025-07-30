@@ -267,3 +267,38 @@ export function generateShareableUrl(options: {
 			throw new Error(`Unsupported URL type: ${type}`);
 	}
 } 
+
+/**
+ * Format a rating number to one decimal place
+ */
+export function formatRating(rating: number): string {
+	return rating.toFixed(1);
+}
+
+/**
+ * Generate star representation for a rating
+ */
+export function getRatingStars(rating: number): string {
+	const fullStars = Math.floor(rating);
+	const hasHalfStar = rating % 1 >= 0.5;
+	let stars = '★'.repeat(fullStars);
+	if (hasHalfStar && fullStars < 5) {
+		stars += '☆';
+	}
+	return stars;
+}
+
+/**
+ * Generate full star representation with empty stars for place details
+ */
+export function getFullRatingStars(rating: number): string {
+	const fullStars = Math.floor(rating);
+	const hasHalfStar = rating % 1 >= 0.5;
+	let stars = '★'.repeat(fullStars);
+	if (hasHalfStar && fullStars < 5) {
+		stars += '☆';
+	}
+	const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+	stars += '☆'.repeat(emptyStars);
+	return stars;
+} 
